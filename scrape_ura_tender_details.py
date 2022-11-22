@@ -25,10 +25,16 @@ import itertools
 import re
 from typing import List
 
+# this line is to test the connection with github
+
 # os.chdir(r'G:\\REA\\Working files\\land-bidding\\Table extraction')
 with open('user_agent.txt') as f:
     ua_list = [ua.strip() for ua in f]
     f.close()
+
+
+# and this line also
+
 
 root_logger = logging.getLogger()
 root_logger.setLevel(logging.DEBUG)
