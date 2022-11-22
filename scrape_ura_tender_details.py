@@ -32,10 +32,6 @@ with open('user_agent.txt') as f:
     ua_list = [ua.strip() for ua in f]
     f.close()
 
-
-# and this line also
-
-
 root_logger = logging.getLogger()
 root_logger.setLevel(logging.DEBUG)
 handler = logging.FileHandler(filename='scraping.log', mode='w', encoding='utf-8')
