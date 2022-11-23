@@ -111,10 +111,11 @@ class WebScraper:
         source = self.driver.page_source
         soup = bs4.BeautifulSoup(source, 'html.parser')
         url = None
+        res_list = list(soup.find_all('a'))
 
         for i in soup.find_all('a'):
             try:
-                if ('Tender-Results' in i['href']):
+                if 'Tender-Results' in i['href']:
                     url = i['href']
                     random_time_delay()
                     break
@@ -153,6 +154,7 @@ class WebScraper:
                     url_list.append(url)
                     self.log("Done")
                 else:
+                    url_list.append('Invalid URL')
                     self.log("Invalid URL", "warning")
                 random_time_delay()
 
@@ -251,41 +253,42 @@ class WebScraper:
 
             random_time_delay()
             try:
-                self.driver.get(url_list[i])
+                if url_list[i] != 'Invalid URL':
+                    self.driver.get(url_list[i])
 
-                random_time_delay()
-                pdf = [file for file in os.listdir(self.save_path) if '.pdf' in file]
-                if len(pdf) > 0:
-                    pdf_file = pdf[0]
-                    if len(pdf) > 1:
-                        self.log(f"{self.land_parcel}_{i}: Multiple PDF downloaded or redundant files, chose the first one", "warning")
-                    source_path = os.path.join(self.save_path, pdf_file)
-                    # remove illegal punc in filename
-                    illegal_punc = '[/\:*?"<>|]'
+                    random_time_delay()
+                    pdf = [file for file in os.listdir(self.save_path) if '.pdf' in file]
+                    if len(pdf) > 0:
+                        pdf_file = pdf[0]
+                        if len(pdf) > 1:
+                            self.log(f"{self.land_parcel}_{i}: Multiple PDF downloaded or redundant files, chose the first one", "warning")
+                        source_path = os.path.join(self.save_path, pdf_file)
+                        # remove illegal punc in filename
+                        illegal_punc = '[/\:*?"<>|]'
 
-                    try:
-                        file_name = re.sub(illegal_punc, '+', _exactName_)
-                    except:
-                        file_name = re.sub(illegal_punc, '+', self.land_parcel)
+                        try:
+                            file_name = re.sub(illegal_punc, '+', _exactName_)
+                        except:
+                            file_name = re.sub(illegal_punc, '+', self.land_parcel)
 
-                    full_file_name = f"{file_name}_{_id_}.pdf"
+                        full_file_name = f"{file_name}_{_id_}.pdf"
 
-                    # make sure there's no duplicated file name
-                    filelist = os.listdir(destination)
-                    occurrence = filelist.count(full_file_name)
-                    if occurrence:
-                        k = 0
-                        full_file_name = f"{file_name}_{_id_}_0.pdf"
-                        while filelist.count(full_file_name):
-                            k += 1
-                            full_file_name = f"{file_name}_{_id_}_{k}.pdf"
+                        # make sure there's no duplicated file name
+                        filelist = os.listdir(destination)
+                        occurrence = filelist.count(full_file_name)
+                        if occurrence:
+                            k = 0
+                            full_file_name = f"{file_name}_{_id_}_0.pdf"
+                            while filelist.count(full_file_name):
+                                k += 1
+                                full_file_name = f"{file_name}_{_id_}_{k}.pdf"
 
-                    desti_path = os.path.join(destination, full_file_name)
-                    shutil.move(source_path, desti_path)
-                    self.log(f"{self.land_parcel}_{i}: Tender details saved in <{full_file_name}>")
+                        desti_path = os.path.join(destination, full_file_name)
+                        shutil.move(source_path, desti_path)
+                        self.log(f"{self.land_parcel}_{i}: Tender details saved in <{full_file_name}>")
 
-                else:
-                    self.log(f"{self.land_parcel}_{i}: No PDF downloaded", "warning")
+                    else:
+                        self.log(f"{self.land_parcel}_{i}: No PDF downloaded", "warning")
             except:
                 self.log(f"{self.land_parcel}_{i}: Error occurred when downloading", "error")
 
