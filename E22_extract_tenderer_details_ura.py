@@ -1,0 +1,1 @@
+# to extract ura tender details from pdf
