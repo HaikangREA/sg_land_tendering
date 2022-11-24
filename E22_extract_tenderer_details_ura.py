@@ -203,7 +203,7 @@ if __name__ == '__main__':
     gfa_list = [tuple_[2] for tuple_ in parse_info.values()]
     info_df = pd.DataFrame({'pdf': pdf_list, 'land_parcel': land_parcel_list, 'date_of_launch': dol_list, 'site_gfa': gfa_list})
     info_df_problems = info_df[(info_df.site_gfa == 0) & (info_df.date_of_launch == '')].reset_index(drop=True)
-    info_df_ok = info_df[(info_df.site_gfa != 0) & (info_df.date_of_launch != '')].reset_index(drop=True)
+    info_df_ok = info_df[(info_df.site_gfa != 0) | (info_df.date_of_launch != '')].reset_index(drop=True)
     extracted_df = []
     for i in range(info_df_ok.shape[0]):
         try:
@@ -219,3 +219,13 @@ if __name__ == '__main__':
 
     ext_df_combined = pd.concat(extracted_df)
     ext_df_combined = ext_df_combined.rename(columns={0: 'tenderer_rank', 1: 'tenderer_name', 2: 'tender_price', 3: 'price_psm_gfa'})
+    ext_df_combined['tenderer_rank'] = ext_df_combined.tenderer_rank.apply(lambda x: re.sub('\n+', '', str(x)))
+    ext_df_combined['tenderer_name'] = ext_df_combined.tenderer_name.apply(lambda x: re.sub('\n+', '', str(x)))
+    # ext_df_combined.to_csv('ura_details_p1.csv', index=False)
+
+    # Manually extracted
+    # deal with files with 2 pages
+    pdf_2p = list(pdf_page_df[pdf_page_df.pages == 2].file)
+
+    # deal with files with more than 3 pages
+    pdf_3pmore = list(pdf_page_df[pdf_page_df.pages >= 3].file)
