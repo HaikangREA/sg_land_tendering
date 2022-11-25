@@ -205,6 +205,7 @@ if __name__ == '__main__':
     info_df_problems = info_df[(info_df.site_gfa == 0) & (info_df.date_of_launch == '')].reset_index(drop=True)
     info_df_ok = info_df[(info_df.site_gfa != 0) | (info_df.date_of_launch != '')].reset_index(drop=True)
     extracted_df = []
+    manual_fill = []
     for i in range(info_df_ok.shape[0]):
         try:
             table = extract_pdf_tables(info_df_ok.pdf[i], pages='1')[0].df.iloc[1:, :]
@@ -214,8 +215,10 @@ if __name__ == '__main__':
                 table['gfa_sqm'] = info_df_ok.site_gfa[i]
                 table['source_file'] = info_df_ok.pdf[i]
                 extracted_df.append(table)
+
         except:
-            pass
+            manual_fill.append(info_df_ok.pdf[i])
+
 
     ext_df_combined = pd.concat(extracted_df)
     ext_df_combined = ext_df_combined.rename(columns={0: 'tenderer_rank', 1: 'tenderer_name', 2: 'tender_price', 3: 'price_psm_gfa'})
