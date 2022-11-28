@@ -175,12 +175,6 @@ def extract_detail(pdf_name: str):
 if __name__ == '__main__':
     os.chdir(r'G:\REA\Working files\land-bidding\Table extraction\tenderer_details_ura\temp')
 
-    # pdf_file = "hdb_ec_land_sales.pdf"
-    # summary_pages = 6
-    # name_parser = pdf_file.split('_')
-    # data_source = name_parser[0].lower()
-    # devt_type = name_parser[1].lower()
-
     tender_results = os.listdir(os.getcwd())
     pdf_page_dict = {}
     for pdf_file in tender_results:
