@@ -107,7 +107,7 @@ features = [
     'num_bidders',
     'source',
     'timediff_launch_to_close',
-    'year_launch'
+    # 'year_launch'
 ]
 
 target = ['price_psm_real']
@@ -125,7 +125,7 @@ r2_score(y_hat, y_train)
 
 x = sm.add_constant(x_train)
 reg2 = sm.OLS(y_train, x).fit()
-reg2.summary()
+print(reg2.summary())
 y_hat_test = reg.predict(x_test)
 df_test = pd.DataFrame(y_hat_test, columns=['predict'])
 y_test = y_test.reset_index(drop=True)
@@ -136,6 +136,7 @@ df_test = df_test.sort_values(by='diff%')
 r2_score(y_test, y_hat_test)
 # plt.scatter(y_train, y_hat)
 # plt.show()
+print(gls_feat.devt_class.nunique())
 
 
 
