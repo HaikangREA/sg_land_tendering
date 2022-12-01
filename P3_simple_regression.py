@@ -99,6 +99,7 @@ gls = gls.sort_values(by=['year_launch', 'month_launch', 'day_launch']).reset_in
 
 
 features = [
+    'sg_gls_id',
     # 'zone',
     'region',
     'site_area_sqm',
@@ -113,10 +114,10 @@ features = [
 target = ['price_psm_real']
 
 gls_feat = gls[features]
-gls_feat_dummy = pd.get_dummies(gls_feat, drop_first=True)
+gls_feat_dummy = pd.get_dummies(gls_feat[features[1:]], drop_first=True)
 gls_target = gls[target]
 
-x_train, x_test, y_train, y_test = train_test_split(gls_feat_dummy, gls_target, random_state=42, test_size=0.2)
+x_train, x_test, y_train, y_test = train_test_split(gls_feat_dummy, gls_target, shuffle=False, test_size=0.2)
 
 reg = LinearRegression()
 reg.fit(x_train, y_train)
@@ -135,10 +136,15 @@ df_test['diff%'] = np.absolute(df_test['residual'] / df_test['target']*100)
 df_test = df_test.sort_values(by='diff%')
 print(r2_score(y_test, y_hat_test))
 print(mean_absolute_percentage_error(y_test, y_hat_test))
-
+y_predict = reg.predict(gls_feat_dummy)
 # plt.scatter(y_train, y_hat)
 # plt.show()
 print(gls_feat.devt_class.nunique())
+
+gls['predicted_price_psm']=y_predict
+gls_check = gls[['price_psm_real', 'predicted_price_psm']]
+print(r2_score(gls_check.price_psm_real, gls_check.predicted_price_psm))
+gls.to_csv(r'G:\REA\Working files\land-bidding\land_sales_full_data\feature eng\gls_with_index.csv',index=False)
 
 
 
