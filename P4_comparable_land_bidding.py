@@ -126,7 +126,7 @@ for i in range(len(comparable_df)):
 area_comparable_df = pd.DataFrame({'land_parcel_id': area_comparable_dict.keys(), 'comparable_area': area_comparable_dict.values()})
 comparable_df = pd.merge(comparable_df, area_comparable_df, how='left', on='land_parcel_id')
 
-comparable_df_merge = pd.merge(comparable_df, gls_with_index[['land_parcel_id', 'successful_tender_price', 'successful_price_psm_gfa']], how='left', on='land_parcel_id')
+comparable_df_merge = pd.merge(comparable_df, gls_with_index[['land_parcel_id', 'sg_gls_id', 'successful_tender_price', 'successful_price_psm_gfa']], how='left', on='land_parcel_id')
 comparable_df_merge['comparable_parcels'] = np.nan
 comparable_df_merge['method'] = 'NO COMPARABLE'
 for i in range(len(comparable_df_merge)):
