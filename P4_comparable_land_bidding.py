@@ -11,12 +11,23 @@ def recency(gls, col_id, col_time, tgt_id, compare_id):
     month_delta = ((tgt_time.year - com_time.year)*12 + tgt_time.month - com_time.month).tolist()[0]
     return month_delta
 
+
 def region(gls, col_id, col_region, tgt_id, compare_id):
     parcel_tgt = gls[gls[col_id] == tgt_id]
     parcel_com = gls[gls[col_id] == compare_id]
     tgt_region = parcel_tgt[col_region].values
     com_region = parcel_com[col_region].values
     return tgt_region == com_region
+
+
+def site_area(gls, col_id, col_area, tgt_id, compare_id):
+    parcel_tgt = gls[gls[col_id] == tgt_id]
+    parcel_com = gls[gls[col_id] == compare_id]
+    tgt_area = parcel_tgt[col_area].values
+    com_area = parcel_com[col_area].values
+
+    # return month_delta
+
 
 def find_common(df, col1, col2):
     common_ele = []
@@ -44,19 +55,21 @@ gls_with_index = pd.read_csv(r'G:\REA\Working files\land-bidding\land_sales_full
 gls_with_index.insert(loc=0, column="land_parcel_id", value=gls_with_index.land_parcel_std.apply(lambda x: hashlib.sha256(x.encode('utf-8')).hexdigest()))
 gls_with_index.sort_values(by=['year_launch', 'month_launch', 'day_launch'], inplace=True)
 gls_with_index.drop_duplicates(subset=['land_parcel_id'], keep='last', inplace=True)
-land_parcel_id = list(gls_with_index.land_parcel_id)[:120]
+land_parcel_id = list(gls_with_index.land_parcel_id)
 
-time_limit = 12
+time_limit = 24
 # land_parcel_id = ['e1cc8490c7c83df452efb74500c5fd2d6defdd7683882eb291cd671bfaa3a759']
+
+# recency within last 24 months
 recency_comparable_dict = {}
 for id in land_parcel_id:
-    id_list_all = list(gls_with_index.land_parcel_id)[:120]
+    id_list_all = list(gls_with_index.land_parcel_id)
     id_list_all.remove(id)
     comparable_list_recency = []
     comparable_list_region = []
     for id_compare in id_list_all:
         time_diff = recency(gls_with_index, 'land_parcel_id', 'date_launch', id, id_compare)
-        if 0 <= time_diff < 12:
+        if 0 <= time_diff <= time_limit:
             # print(time_diff)
             comparable_list_recency.append(id_compare)
     recency_comparable_dict[id] = comparable_list_recency
@@ -65,27 +78,90 @@ for id in land_parcel_id:
 comparable_df = pd.DataFrame({'land_parcel_id': recency_comparable_dict.keys(),
                               'comparable_recency': recency_comparable_dict.values()})
 
+# same region
 region_comparable_dict = {}
-for id in land_parcel_id:
-    id_list_all = list(gls_with_index.land_parcel_id)[:120]
-    id_list_all.remove(id)
-    comparable_list_recency = []
-    comparable_list_region = []
-    for id_compare in id_list_all:
-        same_region = region(gls_with_index, 'land_parcel_id', 'region', id, id_compare)
-        if same_region:
-            # print(same_region)
-            comparable_list_region.append(id_compare)
-    region_comparable_dict[id] = comparable_list_region
+for i in range(len(comparable_df)):
+    land_parcel = comparable_df.iloc[i, 0]
+    tgt_region = gls_with_index[gls_with_index.land_parcel_id == land_parcel]['region'].values[0]
+    comparable_list = comparable_df.iloc[i, 1]
+    comp_gls = gls_with_index[gls_with_index.land_parcel_id.isin(comparable_list)]
+    region_comp = []
+    for j in range(len(comp_gls)):
+        gls_record = comp_gls.iloc[j, :]
+        if gls_record.region == tgt_region:
+            region_comp.append(gls_record.land_parcel_id)
+    region_comparable_dict[land_parcel] = region_comp
+region_comparable_df = pd.DataFrame({'land_parcel_id': region_comparable_dict.keys(), 'comparable_region': region_comparable_dict.values()})
+comparable_df = pd.merge(comparable_df, region_comparable_df, how='left', on='land_parcel_id')
 
-region_com_df = pd.DataFrame({'land_parcel_id': region_comparable_dict.keys(), 'comparable_region': region_comparable_dict.values()})
-comparable_df = pd.merge(comparable_df, region_com_df, how='left', on='land_parcel_id')
+# same devt class
+devt_comparable_dict = {}
+for i in range(len(comparable_df)):
+    land_parcel = comparable_df.iloc[i, 0]
+    tgt_devt = gls_with_index[gls_with_index.land_parcel_id == land_parcel]['devt_class'].values[0]
+    comparable_list = comparable_df.iloc[i, 2]
+    comp_gls = gls_with_index[gls_with_index.land_parcel_id.isin(comparable_list)]
+    devt_comp = []
+    for j in range(len(comp_gls)):
+        gls_record = comp_gls.iloc[j, :]
+        if gls_record.devt_class == tgt_devt:
+            devt_comp.append(gls_record.land_parcel_id)
+    devt_comparable_dict[land_parcel] = devt_comp
+devt_comparable_df = pd.DataFrame({'land_parcel_id': devt_comparable_dict.keys(), 'comparable_devt': devt_comparable_dict.values()})
+comparable_df = pd.merge(comparable_df, devt_comparable_df, how='left', on='land_parcel_id')
 
-comparable_df = find_common(comparable_df, 'comparable_recency', 'comparable_region')
-comparable_df['num'] = comparable_df.common_elements.apply(lambda x: len(x))
+# area range within 20%
+area_comparable_dict = {}
+for i in range(len(comparable_df)):
+    land_parcel = comparable_df.iloc[i, 0]
+    tgt_area = gls_with_index[gls_with_index.land_parcel_id == land_parcel]['site_area_sqm'].values[0]
+    comparable_list = comparable_df.iloc[i, 3]
+    comp_gls = gls_with_index[gls_with_index.land_parcel_id.isin(comparable_list)]
+    area_comp = []
+    for j in range(len(comp_gls)):
+        gls_record = comp_gls.iloc[j, :]
+        if abs((gls_record.site_area_sqm / tgt_area) - 1) < 0.2:
+            area_comp.append(gls_record.land_parcel_id)
+    area_comparable_dict[land_parcel] = area_comp
+area_comparable_df = pd.DataFrame({'land_parcel_id': area_comparable_dict.keys(), 'comparable_area': area_comparable_dict.values()})
+comparable_df = pd.merge(comparable_df, area_comparable_df, how='left', on='land_parcel_id')
 
-# try site area
-# try devt type
-# try zone
+comparable_df_merge = pd.merge(comparable_df, gls_with_index[['land_parcel_id', 'successful_tender_price', 'successful_price_psm_gfa']], how='left', on='land_parcel_id')
+comparable_df_merge['comparable_parcels'] = np.nan
+comparable_df_merge['method'] = 'NO COMPARABLE'
+for i in range(len(comparable_df_merge)):
+    if len(comparable_df_merge.comparable_area[i]) == 0:
+        if len(comparable_df_merge.comparable_devt[i]) == 0:
+            if len(comparable_df_merge.comparable_region[i]) == 0:
+                pass
+            else:
+                comparable_df_merge.comparable_parcels[i] = comparable_df_merge.comparable_region[i]
+                comparable_df_merge.method[i] = 'past 24m+same region'
+        else:
+            comparable_df_merge.comparable_parcels[i] = comparable_df_merge.comparable_devt[i]
+            comparable_df_merge.method[i] = 'past 24m+same region+same dev type'
+    else:
+        comparable_df_merge.comparable_parcels[i] = comparable_df_merge.comparable_area[i]
+        comparable_df_merge.method[i] = 'past 24m+same region+same dev type+area range 20%'
 
-#%%
+# calculate comparable price
+def find_comparable_price(comp_id_list, ref_df, id_col, price_col):
+    try:
+        ref_records = ref_df[ref_df[id_col].isin(comp_id_list)]
+        return ref_records[price_col].mean()
+    except TypeError:
+        return comp_id_list
+
+comparable_df_merge['comparable_tender_price'] = comparable_df_merge.comparable_parcels.apply(find_comparable_price, ref_df=gls_with_index, id_col='land_parcel_id', price_col='successful_tender_price')
+comparable_df_merge['comparable_price_psm_gfa'] = comparable_df_merge.comparable_parcels.apply(find_comparable_price, ref_df=gls_with_index, id_col='land_parcel_id', price_col='successful_price_psm_gfa')
+comparable_df_merge['num_comparable_parcels'] = comparable_df_merge.comparable_parcels.apply(lambda x: len(x) if isinstance(x, list) else 0)
+comparable_df_merge['total_price_error'] = abs(comparable_df_merge.comparable_tender_price / comparable_df_merge.successful_tender_price - 1)
+comparable_df_merge['price_psm_gfa_error'] = abs(comparable_df_merge.comparable_price_psm_gfa / comparable_df_merge.successful_price_psm_gfa - 1)
+
+# comparable_df_merge[['land_parcel_id', 'method', 'successful_tender_price',
+#                      'comparable_tender_price', 'successful_price_psm_gfa',
+#                      'comparable_price_psm_gfa', 'total_price_error', 'price_psm_gfa_error',
+#                      'num_comparable_parcels', 'comparable_parcels']] \
+#     .to_csv(
+#     r'G:\REA\Working files\land-bidding\land_sales_full_data\feature eng\comparable_land_bidding.csv',
+#     index = False)
