@@ -4,7 +4,7 @@ import numpy as np
 import re
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import r2_score
+from sklearn.metrics import r2_score, mean_absolute_percentage_error, accuracy_score
 import matplotlib.pylab as plt
 import statsmodels.api as sm
 
@@ -95,11 +95,11 @@ gls['quarter_launch'] = gls.year_launch.astype(str) + ' Q' + gls.month_launch.ap
 gdp = pd.read_csv(r'G:\REA\Working files\land-bidding\land_sales_full_data\feature eng\macroecondata.csv')
 gls['lg_site_area'] = np.log(gls.site_area_sqm)
 gls['lg_price_psm_real'] = np.log(gls.price_psm_real)
-
+gls = gls.sort_values(by=['year_launch', 'month_launch', 'day_launch']).reset_index(drop=True)
 
 
 features = [
-    'zone',
+    # 'zone',
     'region',
     'site_area_sqm',
     'devt_class',
@@ -116,7 +116,7 @@ gls_feat = gls[features]
 gls_feat_dummy = pd.get_dummies(gls_feat, drop_first=True)
 gls_target = gls[target]
 
-x_train, x_test, y_train, y_test = train_test_split(gls_feat_dummy, gls_target, test_size=0.2, random_state=42)
+x_train, x_test, y_train, y_test = train_test_split(gls_feat_dummy, gls_target, random_state=42, test_size=0.2)
 
 reg = LinearRegression()
 reg.fit(x_train, y_train)
@@ -133,7 +133,9 @@ df_test['target'] = y_test
 df_test['residual'] = df_test['target'] - df_test['predict']
 df_test['diff%'] = np.absolute(df_test['residual'] / df_test['target']*100)
 df_test = df_test.sort_values(by='diff%')
-r2_score(y_test, y_hat_test)
+print(r2_score(y_test, y_hat_test))
+print(mean_absolute_percentage_error(y_test, y_hat_test))
+
 # plt.scatter(y_train, y_hat)
 # plt.show()
 print(gls_feat.devt_class.nunique())
