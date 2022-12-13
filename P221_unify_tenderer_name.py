@@ -4,7 +4,7 @@
 # Example:
 # input value -> 0 successful_tenderer_name = "CDL, MCL Land and CapitaLand Group"
 # output value (in multiple rows) ->
-# 0 tenderer_1 | City Development Limited (CDL) |...
+# 0 tenderer_1 | City Developments Limited (CDL) |...
 # 1 tenderer_2 | MCL Land |...
 # 2 tenderer_3 | CapitaLand |...
 # Also, "Acresvale Investment Pte. Ltd." and "Sherwood Development Pte. Ltd." etc are all subsidiaries of Keppel Land, they will be unified as "Keppel Land"
@@ -15,7 +15,6 @@ import numpy as np
 import re
 from typing import List
 import SQL_connect
-# pd.set_option('display.float_format', lambda x: '%.0f' % x)
 pd.reset_option('display.float_format')
 dbconn = SQL_connect.DBConnectionRS()
 
@@ -179,6 +178,6 @@ gls_dedup = combine_same_tenderer(gls_merge_td_name)
 pass
 # gls_dedup.to_csv(r'G:\REA\Working files\land-bidding\land_sales_full_data\feature eng\gls_unified_tenderer.csv', index=False)
 dbconn.copy_from_df(
-    gls_dedup[['sg_gls_id', 'num_successful_tenderers', 'successful_tenderer_rank', 'unified_tenderer_name', 'raw_tenderer_name']],
+    gls_dedup[['sg_gls_id', 'num_successful_tenderers', 'successful_tenderer_id', 'unified_tenderer_name', 'sep_tenderer_name']],
     "data_science.sg_gls_unified_tenderer_name",
 )
