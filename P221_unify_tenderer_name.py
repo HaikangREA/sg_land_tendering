@@ -157,7 +157,9 @@ name_dict_dic = dict(zip(list(name_dict.key_word.apply(lambda x: x.lower())), li
 td_df = gls[['sg_gls_id', 'separated_names', 'num_tenderers_same_rank'] + td_num_list]
 td_df = td_df.melt(id_vars=['sg_gls_id', 'separated_names', 'num_tenderers_same_rank'], var_name='tenderer_id', value_name='tenderer_name')\
     .dropna(axis = 0, subset = ['tenderer_name'])
-td_df['tenderer_name'] = td_df.tenderer_name.apply(lambda x: re.sub('\(.*?\)', '', x)).apply(lambda x: re.sub(' +', ' ', x)).apply(lambda x: x.strip())
+td_df['tenderer_name'] = td_df.tenderer_name.apply(lambda x: re.sub('\(.*?\)', '', x))\
+    .apply(lambda x: re.sub(' +', ' ', x))\
+    .apply(lambda x: x.strip())
 td_df = td_df[['sg_gls_id', 'num_tenderers_same_rank', 'tenderer_id', 'tenderer_name']]
 td_df['unified_name'] = td_df.tenderer_name.apply(name_by_keyword, dictionary=name_dict_dic)
 # print out num of records with no unified name
