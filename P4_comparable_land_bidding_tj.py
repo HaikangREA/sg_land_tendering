@@ -78,7 +78,7 @@ def find_comparable_price(comparable_df, dat, index_table, price_col):
 
 # gls_with_index = pd.read_csv(r'G:\REA\Working files\land-bidding\land_sales_full_data\feature eng\gls_with_index.csv')
 gls_with_index = dbconn.read_data("""select * from data_science.sg_new_full_land_bidding_filled_features 
-                                    where devt_class = 'residential' and right(date_launch, 4) >= 2010; 
+                                    where devt_class = 'residential' and year_launch >= 2010; 
                                     """)
 land_bid_index = dbconn.read_data(""" select * from data_science.sg_resi_and_mixdevt_land_tender_price_index ;""")
 
@@ -122,8 +122,8 @@ for id in sg_gls_id:
         comparable_final.append([id, est, "past 24m, same region", comparable_df.shape[0]])
 
 final_df = pd.DataFrame(comparable_final, columns=['sg_gls_id', 'comparable_price_psm_gfa', 'method', 'num_comparable_parcels'])
-# dbconn.copy_from_df(final_df, "data_science.updated_sg_new_comparable_land_bidding")
-
+dbconn.copy_from_df(final_df, "data_science.updated_sg_new_comparable_land_bidding")
+pass
 
 # # same region
 # region_comparable_dict = {}
