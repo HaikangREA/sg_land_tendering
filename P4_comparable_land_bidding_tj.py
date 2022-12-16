@@ -4,6 +4,7 @@ import hashlib
 import SQL_connect
 import datetime
 from dateutil.relativedelta import relativedelta
+from tqdm import tqdm
 
 dbconn = SQL_connect.DBConnectionRS()
 
@@ -89,7 +90,7 @@ for i in range(len(pred)):
 for col in [col for col in gls_with_index.columns if col not in pred.columns]:
     pred[col] = np.nan
 pred = pred[gls_with_index.columns]
-gls_with_index = pd.concat([gls_with_index, pred])
+# gls_with_index = pd.concat([gls_with_index, pred])
 
 # # change dev type with resi & comm to rc
 # rc_idx = gls_with_index[gls_with_index.devt_type.str.contains(r'(?=.*[Rr]esidential)(?=.*[Cc]ommercial)')].index
@@ -98,7 +99,7 @@ gls_with_index = pd.concat([gls_with_index, pred])
 
 gls_with_index.sort_values(by=['year_launch', 'month_launch', 'day_launch'], inplace=True)
 gls_with_index.drop_duplicates(subset=['land_parcel_id'], keep='last', inplace=True)
-sg_gls_id = list(pred.sg_gls_id)
+sg_gls_id = list(gls_with_index.sg_gls_id)
 
 time_limit = 24
 # land_parcel_id = ['e1cc8490c7c83df452efb74500c5fd2d6defdd7683882eb291cd671bfaa3a759']
@@ -106,7 +107,7 @@ gls_with_index.drop(['hi_price_psm_gfa'], axis=1, inplace=True)
 
 # main code
 comparable_final = []
-for id in sg_gls_id:
+for id in tqdm(sg_gls_id):
     id_list_all = list(gls_with_index.sg_gls_id)
     id_list_all.remove(id)
     dat = gls_with_index[gls_with_index['sg_gls_id'] == id]
@@ -116,6 +117,12 @@ for id in sg_gls_id:
         (gls_with_index.launch_month_index.astype(str) > get_month_index_from(dat.launch_month_index, -24))
             & ((dat.launch_month_index.values - gls_with_index.launch_month_index) > 0)
     ]
+    if comparable_df.shape[0] <= 0:
+        comparable_final.append([id, None, "No comparable", 0])
+        continue
+
+    # same dev class
+    comparable_df = comparable_df[comparable_df['devt_class'] == dat.devt_class.values[0]]
     if comparable_df.shape[0] <= 0:
         comparable_final.append([id, None, "No comparable", 0])
         continue
@@ -132,20 +139,14 @@ for id in sg_gls_id:
         comparable_final.append([id, None, "No comparable", 0])
         continue
 
-    # same dev class
-    comparable_df = comparable_df[comparable_df['devt_class'] == dat.devt_class.values[0]]
-    if comparable_df.shape[0] <= 0:
-        comparable_final.append([id, None, "No comparable", 0])
-        continue
-
     # Area <= 20%
     comparable_df_area = comparable_df[abs((comparable_df.site_area_sqm/dat.site_area_sqm.values[0])-1) < 0.2]
     if comparable_df_area.shape[0] > 0:
         est = find_comparable_price(comparable_df_area, dat, land_bid_index, price_col='price_psm_gfa_1st')
-        comparable_final.append([id, est, "past 24m, same region, same zone, same dev, area<20%", comparable_df_area.shape[0]])
+        comparable_final.append([id, est, "past 24m, same dev, same region, same zone, area<20%", comparable_df_area.shape[0]])
     else:
         est = find_comparable_price(comparable_df, dat, land_bid_index, price_col='price_psm_gfa_1st')
-        comparable_final.append([id, est, "past 24m, same region, same zone, same dev", comparable_df.shape[0]])
+        comparable_final.append([id, est, "past 24m, same dev, same region, same zone", comparable_df.shape[0]])
 
 final_df = pd.DataFrame(comparable_final, columns=['sg_gls_id', 'comparable_price_psm_gfa', 'method', 'num_comparable_parcels'])
 # dbconn.copy_from_df(final_df, "data_science.updated_sg_new_comparable_land_bidding")
