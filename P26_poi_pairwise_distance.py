@@ -43,8 +43,8 @@ def calculate_distance(poi_a, key_a, poi_b, key_b, distance_limit=5000):
 poi_df = dbconn.read_data("""select poi_name , poi_type , poi_subtype , poi_lat , poi_long , location_poi_dwid  , town 
                              from masterdata_sg.poi
                              ;""")
-# gls = dbconn.read_data("""select * from data_science.sg_new_full_land_bidding_filled_features;""")
-gls = dbconn.read_data("""select * from data_science.sg_gls_land_parcel_for_prediction""")
+gls = dbconn.read_data("""select * from data_science.sg_new_full_land_bidding_filled_features;""")
+# gls = dbconn.read_data("""select * from data_science.sg_gls_land_parcel_for_prediction""")
 poi_df = poi_df.rename(columns={'poi_lat': 'latitude', 'poi_long': 'longitude'})
 poi_mrt = poi_df[poi_df.poi_subtype == 'mrt station'].drop_duplicates(subset='poi_name').reset_index(drop=True)
 poi_bus = poi_df[poi_df.poi_subtype == 'bus stop'].drop_duplicates(subset='poi_name').reset_index(drop=True)
@@ -75,3 +75,6 @@ check = 42
 #     "data_science.sg_gls_land_parcel_school_distance",
 # )
 
+# recalculate distance to cbd (1.2884113726733633, 103.85252198698596)
+ctr_coord = (1.2884113726733633, 103.85252198698596)
+gls['dist_to_cbd'] = gls.coordinates.apply(lambda x: geodesic(x, ctr_coord).km if pd.notna(list(x)).all() else -1)
