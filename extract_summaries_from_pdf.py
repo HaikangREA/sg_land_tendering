@@ -101,11 +101,13 @@ def amend_split_row(df, index_pair=None, auto_detect=False, limit=0.7, drop=Fals
     else:
         print("Insufficient parameters")
 
+
 # func to check length of num_list
 def check_len(pdseries, length):
     idx_list = list(pdseries[pdseries.str.len() >= length].index)
     print(f"Length>={length}: Index{idx_list}")
     return idx_list
+
 
 # func to extract num from str
 def extract_num(string: str, type: str = 'all', decimal: bool = False, ignore_sep: str = None, keep: str = None):
