@@ -49,6 +49,7 @@ gls = dbconn.read_data('''  select *
                                 using (year_launch)
                                 left join data_science.sg_land_bidding_total_price_hedonic_index_2022
                                 using (year_launch)
+                            where devt_type not in ('industrial')
                             ;''')
 # gls = dbconn.read_data('''  with
 #                             sch as(
@@ -100,10 +101,11 @@ gls = dbconn.read_data('''  select *
 
 # read in data for prediction
 pred = dbconn.read_data(''' select *
-                            from data_science.sg_gls_land_parcel_for_prediction sglpfp 
-                            left join data_science.sg_land_parcel_distance_to_infrastructure slpdti 
-                            using (land_parcel_id)
+                            from data_science.sg_gls_land_parcel_for_prediction
                             ;''')
+
+# read in infra table
+infra = dbconn.read_data(''' select * from data_science.sg_land_parcel_distance_to_infrastructure''')
 
 # read in nearby parcels data
 dist_parcels = dbconn.read_data(''' select land_parcel_id_a as land_parcel_id, min(distance_m) as dist_to_nearest_parcel_launched_past_6m
@@ -122,7 +124,16 @@ nearby_parcels = dbconn.read_data('''   select land_parcel_id_a as land_parcel_i
                                         and distance_m <= 3000
                                         group by 1
                                         ;''')
-gls = gls.merge(dist_parcels, how='left', on='land_parcel_id').merge(nearby_parcels, how='left', on='land_parcel_id')
+
+# training data
+gls = gls.merge(dist_parcels, how='left', on='land_parcel_id')\
+    .merge(nearby_parcels, how='left', on='land_parcel_id')\
+    .merge(infra, how='left', on='land_parcel_id')
+
+# predicting data
+pred = pred.merge(dist_parcels, how='left', on='land_parcel_id')\
+    .merge(nearby_parcels, how='left', on='land_parcel_id')\
+    .merge(infra, how='left', on='land_parcel_id')
 
 # select target
 gls['price_psm_real'] = gls.successful_price_psm_gfa / gls.hi_price_psm_gfa
@@ -130,16 +141,21 @@ target = 'price_psm_real'
 
 # select features
 gls['num_winners'] = gls.tenderer_name_1st.apply(lambda x: len(x.split('|')))
+gls['joint_venture'] = gls.num_winners.apply(lambda x: 1 if x > 1 else 0)
+
 cat_cols = ['region',
             'zone',
             'devt_class',
+            'devt_type',
             'source'
             ]
-num_cols = ['site_area_sqm',
+num_cols = ['latitude',
+            'longitude',
+            'site_area_sqm',
             'lease_term',
             'gpr',
             'num_bidders',
-            'num_winners',  # change to joint venture or not
+            'joint_venture',
             'year_launch',
             'timediff_launch_to_close',
             'proj_num_of_units',  # should be dynamic
@@ -150,7 +166,7 @@ num_cols = ['site_area_sqm',
             'num_bus_stop_500m',
             'num_school_1km',
             'dist_to_nearest_parcel_launched_past_6m',
-            # 'dist_to_cbd',  # haven't created for predicting parcels
+            'dist_to_cbd',
             'dist_to_mrt',
             'dist_to_bus_stop',
             'dist_to_school',
@@ -232,11 +248,11 @@ param_space = {'max_depth': np.arange(7, 10),
 
 check = 42
 
-param_tuned = {'max_depth': 7,
-               'learning_rate': 0.02,
-               'gamma': 0.1,
-               'reg_lambda': 1.05,
-               'min_child_weight': 4
+param_tuned = {'reg_lambda': 1.15,
+               'min_child_weight': 4,
+               'max_depth': 7,
+               'learning_rate': 0.03,
+               'gamma': 0.25,
                }
 
 # test for over-fitting
@@ -253,7 +269,6 @@ print("Test size: %f" % test_size,
       sep='\n')
 
 # prediction
-dynamic_var = ['num_bidders', 'proj_max_floor']
 # pred.loc[0, 'proj_max_floor'] = 50
 # pred.loc[1, 'proj_max_floor'] = 24
 pred.loc[0, 'zone'] = 'downtown core'
@@ -263,19 +278,29 @@ for col in [item for item in feat if item not in pred.columns]:
     pred[col] = np.nan
 pred_x = pd.get_dummies(pred[cols])
 
-# fill in comparable price psm for lentor gdns manually
 pred_x.loc[1, 'comparable_price_psm_gfa'] = 11882.8  # do not manually key in, find ways to auto-calculate
+# fill in dynamic features manually
+dynamic_var = ['num_bidders', 'proj_max_floor', 'joint_venture']
+pred_x.loc[0, 'proj_max_floor'] = 40
+pred_x.loc[1, 'proj_max_floor'] = 18
+pred_x['joint_venture'] = 0
 
-dmat_pred = DMatrix(x, label=y)
+
+# dmat_pred = DMatrix(x, label=y)
+dmat_pred = train_data
 xgb_tuned = train(params=param_tuned, dtrain=dmat_pred, num_boost_round=100)
 pred_train = xgb_tuned.predict(dmat_pred)
+pred_test = xgb_tuned.predict(test_data)
+
 for col in [item for item in xgb_tuned.feature_names if item not in pred_x.columns]:
     pred_x[col] = np.nan
+
 pred_x = pred_x[xgb_tuned.feature_names]
 pred_x_dmat = DMatrix(pred_x)
 hi = gls[gls.year_launch == 2022].hi_price_psm_gfa.mean()
-prediction = xgb_tuned.predict(pred_x_dmat) * hi
-mape = mape(y, pred_train)
+prediction = xgb_tuned.predict(pred_x_dmat)
+mape = mape(y_test, pred_test)
+
 for i in range(len(pred_x)):
     print("Predicted tender price for {}: {:.2f}".format(pred.loc[i, 'land_parcel_std'],
                                                          pred_x.loc[i, 'site_area_sqm'] * pred_x.loc[i, 'gpr'] *
