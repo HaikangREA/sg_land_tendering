@@ -49,60 +49,12 @@ gls = dbconn.read_data('''  select *
                                 using (year_launch)
                                 left join data_science.sg_land_bidding_total_price_hedonic_index_2022
                                 using (year_launch)
-                            where devt_type not in ('industrial')
                             ;''')
-# gls = dbconn.read_data('''  with
-#                             sch as(
-#                                 select land_parcel_id, count(school) as num_school_1km
-#                                 from data_science.sg_land_parcel_school_distance
-#                                 where distance < 1000
-#                                 group by 1)
-#                                 ,
-#                             bus as(
-#                                 select land_parcel_id, count(bus_stop) as num_bus_stop_500m
-#                                 from data_science.sg_land_parcel_bus_stop_distance
-#                                 where distance < 500
-#                                 group by 1)
-#                                 ,
-#                             mrt as(
-#                                 select land_parcel_id, count(mrt_station) as num_mrt_1km
-#                                 from data_science.sg_land_parcel_mrt_distance
-#                                 where distance < 1000
-#                                 group by 1)
-#                             select *
-#                             from data_science.sg_new_full_land_bidding_filled_features
-#                                 left join mrt
-#                                 using (land_parcel_id)
-#                                 left join bus
-#                                 using (land_parcel_id)
-#                                 left join sch
-#                                 using (land_parcel_id)
-#                             ;
-#                             ''')
-# dist_facility = dbconn.read_data('''with mrt as(
-#                                     select land_parcel_id , min(distance) as dist_to_mrt
-#                                     from data_science.sg_land_parcel_mrt_distance slpmd
-#                                     group by 1)
-#                                     ,
-#                                     bus as(
-#                                     select land_parcel_id , min(distance) as dist_to_bus_stop
-#                                     from data_science.sg_land_parcel_bus_stop_distance slpbsd
-#                                     group by 1)
-#                                     ,
-#                                     sch as(
-#                                     select land_parcel_id , min(distance) as dist_to_school
-#                                     from data_science.sg_land_parcel_school_distance sglpsd
-#                                     group by 1)
-#                                     select *
-#                                     from mrt
-#                                         left join bus using (land_parcel_id)
-#                                         left join sch using (land_parcel_id)
-#                                     ;''')
 
 # read in data for prediction
-pred = dbconn.read_data(''' select *
-                            from data_science.sg_gls_land_parcel_for_prediction
-                            ;''')
+# pred = dbconn.read_data(''' select *
+#                             from data_science.sg_gls_land_parcel_for_prediction
+#                             ;''')
 
 # read in infra table
 infra = dbconn.read_data(''' select * from data_science.sg_land_parcel_distance_to_infrastructure''')
@@ -125,15 +77,40 @@ nearby_parcels = dbconn.read_data('''   select land_parcel_id_a as land_parcel_i
                                         group by 1
                                         ;''')
 
-# training data
+dist_proj = dbconn.read_data('''select land_parcel_id , min(distance) as dist_to_nearest_proj
+                                from data_science.sg_land_parcel_filled_info_distance_to_project
+                                where land_use_big = proj_devt_class
+                                and land_launch_year >= proj_completion_year
+                                and distance >= 10
+                                group by 1
+                                ;''')
+
+nearby_proj = dbconn.read_data('''  select land_parcel_id , count(project_dwid) as num_proj_nearby_2km_5yr
+                                    from data_science.sg_land_parcel_filled_info_distance_to_project
+                                    where land_use_big = proj_devt_class
+                                    and distance > 10
+                                    and distance < 2000
+                                    and land_launch_year - proj_completion_year > 0
+                                    and land_launch_year - proj_completion_year < 5
+                                    group by 1;''')
+
+# full data
 gls = gls.merge(dist_parcels, how='left', on='land_parcel_id')\
     .merge(nearby_parcels, how='left', on='land_parcel_id')\
-    .merge(infra, how='left', on='land_parcel_id')
+    .merge(infra, how='left', on='land_parcel_id')\
+    .merge(dist_proj, how='left', on='land_parcel_id')\
+    .merge(nearby_proj, how='left', on='land_parcel_id')
 
 # predicting data
-pred = pred.merge(dist_parcels, how='left', on='land_parcel_id')\
-    .merge(nearby_parcels, how='left', on='land_parcel_id')\
-    .merge(infra, how='left', on='land_parcel_id')
+# pred = pred.merge(dist_parcels, how='left', on='land_parcel_id')\
+#     .merge(nearby_parcels, how='left', on='land_parcel_id')\
+#     .merge(infra, how='left', on='land_parcel_id')\
+#     .merge(dist_proj, how='left', on='land_parcel_id')\
+#     .merge(nearby_proj, how='left', on='land_parcel_id')
+pred = gls[gls.sg_gls_id.astype(str).str[-10:] == '0'*10]
+
+# training data
+gls = gls.drop(pred.index, axis=0)
 
 # select target
 gls['price_psm_real'] = gls.successful_price_psm_gfa / gls.hi_price_psm_gfa
@@ -161,18 +138,21 @@ num_cols = ['latitude',
             'proj_num_of_units',  # should be dynamic
             'proj_max_floor',  # should be dynamic
             'num_nearby_parcels_3km_past_6m',
-            'num_of_nearby_completed_proj_200m',  # calculate manually using coordinates
+            # 'num_of_nearby_completed_proj_200m',  # calculate manually using coordinates
+            'num_proj_nearby_2km_5yr',
             'num_mrt_1km',
             'num_bus_stop_500m',
             'num_school_1km',
             'dist_to_nearest_parcel_launched_past_6m',
+            'dist_to_nearest_proj',
             'dist_to_cbd',
             'dist_to_mrt',
             'dist_to_bus_stop',
             'dist_to_school',
             'comparable_price_psm_gfa'
             ]
-cols = cat_cols + num_cols
+feature_cols = cat_cols + num_cols
+cols = feature_cols + [target]
 
 # pre-process
 gls = gls.sort_values(by=['year_launch', 'month_launch', 'date_launch'])
@@ -188,14 +168,26 @@ gls = gls.fillna(pd.DataFrame(np.zeros((gls.shape[0], 1)),
                               columns=['num_nearby_parcels_3km_past_6m'])
                  )
 
-gls_featured = gls[cols]
-x = pd.get_dummies(gls_featured)
-y = gls[target]
-dmat = DMatrix(data=x, label=y)
+# split data by randomly selecting most recent records as testing data
+time_threshold = 2012
+gls_dummy = pd.get_dummies(gls[cols])
+gls_train = gls_dummy[gls_dummy.year_launch < time_threshold]
+gls_test = gls_dummy[gls_dummy.year_launch >= time_threshold]
+x = gls_train.drop(target, axis=1)
+y = gls_train[target]
+x_test_to_select = gls_test.drop(target, axis=1)
+y_test_to_select = gls_test[target]
+# dmat = DMatrix(data=x, label=y)
+
+x_train_to_append, x_test, y_train_to_append, y_test = train_test_split(x_test_to_select, y_test_to_select, test_size=0.5, random_state=42)
+x_train = pd.concat([x, x_train_to_append])
+y_train = pd.concat([y, y_train_to_append])
+test_size = round(len(x_test) / len(gls), 2)
 
 # initial model with default params
-test_size = 0.2
-x_train, x_test, y_train, y_test = train_test_split(x, y, shuffle=False, test_size=test_size)
+# # train-test split
+# test_size = 0.2
+# x_train, x_test, y_train, y_test = train_test_split(x, y, shuffle=False, test_size=test_size)
 train_data, test_data = DMatrix(x_train, label=y_train), \
                         DMatrix(x_test, label=y_test)
 
@@ -248,11 +240,11 @@ param_space = {'max_depth': np.arange(7, 10),
 
 check = 42
 
-param_tuned = {'reg_lambda': 1.15,
+param_tuned = {'reg_lambda': 1.05,
                'min_child_weight': 4,
-               'max_depth': 7,
+               'max_depth': 8,
                'learning_rate': 0.03,
-               'gamma': 0.25,
+               'gamma': 0.20,
                }
 
 # test for over-fitting
@@ -269,20 +261,24 @@ print("Test size: %f" % test_size,
       sep='\n')
 
 # prediction
-# pred.loc[0, 'proj_max_floor'] = 50
-# pred.loc[1, 'proj_max_floor'] = 24
-pred.loc[0, 'zone'] = 'downtown core'
 feat = x.columns
 
 for col in [item for item in feat if item not in pred.columns]:
     pred[col] = np.nan
-pred_x = pd.get_dummies(pred[cols])
+pred_x = pd.get_dummies(pred[feature_cols])
 
-pred_x.loc[1, 'comparable_price_psm_gfa'] = 11882.8  # do not manually key in, find ways to auto-calculate
 # fill in dynamic features manually
+pred_land_index_dict = {}
+pred_index_list = pred.index
+for i in range(len(pred)):
+    idx = pred_index_list[i]
+    pred_land_index_dict[pred.loc[idx, 'land_parcel_std']] = idx
+
 dynamic_var = ['num_bidders', 'proj_max_floor', 'joint_venture']
-pred_x.loc[0, 'proj_max_floor'] = 40
-pred_x.loc[1, 'proj_max_floor'] = 18
+pred_x.loc[pred_land_index_dict['Marina Gardens Lane'], 'zone'] = 'downtown core'
+pred_x.loc[pred_land_index_dict['Lentor Gardens'], 'comparable_price_psm_gfa'] = 11882.8  # do not manually key in, find ways to auto-calculate
+pred_x.loc[pred_land_index_dict['Marina Gardens Lane'], 'proj_max_floor'] = 40
+pred_x.loc[pred_land_index_dict['Lentor Gardens'], 'proj_max_floor'] = 18
 pred_x['joint_venture'] = 0
 
 
@@ -301,9 +297,10 @@ hi = gls[gls.year_launch == 2022].hi_price_psm_gfa.mean()
 prediction = xgb_tuned.predict(pred_x_dmat)
 mape = mape(y_test, pred_test)
 
-for i in range(len(pred_x)):
-    print("Predicted tender price for {}: {:.2f}".format(pred.loc[i, 'land_parcel_std'],
-                                                         pred_x.loc[i, 'site_area_sqm'] * pred_x.loc[i, 'gpr'] *
+for i in range(len(pred_index_list)):
+    parcel_idx = pred_index_list[i]
+    print("Predicted tender price for {}: {:.2f}".format(pred.loc[parcel_idx, 'land_parcel_std'],
+                                                         pred_x.loc[parcel_idx, 'site_area_sqm'] * pred_x.loc[parcel_idx, 'gpr'] *
                                                          prediction[i]))
 
 # for marina: 880,000,000 (MTD) / 1,180,000,000 (Yuelin)
