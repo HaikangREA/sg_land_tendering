@@ -81,7 +81,7 @@ def find_comparable_price(comparable_df, dat, index_table, price_col):
 # # gls_price.to_csv(r'G:\REA\Working files\land-bidding\land_sales_full_data\feature eng\gls_with_index.csv', index=False)
 # gls_with_index.to_csv(r'G:\REA\Working files\land-bidding\land_sales_full_data\feature eng\gls_with_index.csv', index=False)
 
-gls_with_index = dbconn.read_data("""   select * from data_science.sg_new_full_land_bidding_filled_features """)
+gls_with_index = dbconn.read_data("""   select * from data_science.sg_land_bidding_filled_features_with_comparable_price """)
 # gls_with_index = dbconn.read_data("""   select *
 #                                         from data_science.sg_new_full_land_bidding_filled_features
 #                                         left join data_science.sg_land_bidding_psm_price_hedonic_index_2022
@@ -89,25 +89,21 @@ gls_with_index = dbconn.read_data("""   select * from data_science.sg_new_full_l
 #                                         left join data_science.sg_land_bidding_total_price_hedonic_index_2022
 #                                         using (year_launch);
 #                                         """)
-pred = dbconn.read_data('''select * from data_science.sg_gls_land_parcel_for_prediction''')
+# pred = dbconn.read_data('''select * from data_science.sg_gls_land_parcel_for_prediction''')
 land_bid_index = dbconn.read_data(""" select * from data_science.sg_land_bidding_psm_price_hedonic_index_2022 ;""")
 
-# create gls id for predicting parcels
-for i in range(len(pred)):
-    land_name = pred.loc[i, 'land_parcel_std'].lower().replace(' ', '')
-    if np.isnan(pred.loc[i, 'sg_gls_id']):
-        pred.loc[i, 'sg_gls_id'] = land_name.zfill(64)
-
-# create coordinates for pred
-pred['coordinates'] = list(zip(list(pred.latitude), list(pred.longitude)))
-
-# create na values for col in gls but pred doesnt have
-for col in [col for col in gls_with_index.columns if col not in pred.columns]:
-    pred[col] = np.nan
-
-# append gls with pred
-pred = pred[gls_with_index.columns]
-gls_with_index = pd.concat([gls_with_index, pred])
+# pred = gls_with_index[gls_with_index.sg_gls_id.astype(str).str[-10:] == '0'*10]
+#
+# create coordinates
+gls_with_index['coordinates'] = list(zip(list(gls_with_index.latitude), list(gls_with_index.longitude)))
+#
+# # create na values for col in gls but pred doesnt have
+# for col in [col for col in gls_with_index.columns if col not in pred.columns]:
+#     pred[col] = np.nan
+#
+# # append gls with pred
+# pred = pred[gls_with_index.columns]
+# gls_with_index = pd.concat([gls_with_index, pred])
 
 # # change dev type with resi & comm to rc
 # rc_idx = gls_with_index[gls_with_index.devt_type.str.contains(r'(?=.*[Rr]esidential)(?=.*[Cc]ommercial)')].index
@@ -121,13 +117,13 @@ gls_with_index.index = gls_with_index.sg_gls_id
 
 time_limit = 24
 distance_limit_km = 5
-area_limit = 20%
+area_limit = 0.2
 # land_parcel_id = ['e1cc8490c7c83df452efb74500c5fd2d6defdd7683882eb291cd671bfaa3a759']
 # gls_with_index.drop(['hi_price_psm_gfa'], axis=1, inplace=True)
 
 # main code
 comparable_final = []
-for id in tqdm(sg_gls_id):
+for id in tqdm(sg_gls_id[:-1]):
     id_list_all = list(gls_with_index.sg_gls_id)
     id_list_all.remove(id)
     dat = gls_with_index[gls_with_index['sg_gls_id'] == id]
@@ -147,21 +143,21 @@ for id in tqdm(sg_gls_id):
         comparable_final.append([id, gls_with_index.loc[id].land_parcel_id,  None, "No comparable", 0])
         continue
 
-    # # Same region
-    # comparable_df = comparable_df[comparable_df['region'] == dat.region.values[0]]
-    # if comparable_df.shape[0] <= 0:
-    #     comparable_final.append([id, gls_with_index.loc[id].land_parcel_id,  None, "No comparable", 0])
-    #     continue
+    # Same region
+    comparable_df = comparable_df[comparable_df['region'] == dat.region.values[0]]
+    if comparable_df.shape[0] <= 0:
+        comparable_final.append([id, gls_with_index.loc[id].land_parcel_id,  None, "No comparable", 0])
+        continue
 
-    # # Same zone
-    # comparable_df = comparable_df[comparable_df['zone'] == dat.zone.values[0]]
-    # if comparable_df.shape[0] <= 0:
-    #     comparable_final.append([id, gls_with_index.loc[id].land_parcel_id, None, "No comparable", 0])
-    #     continue
+    # Same zone
+    comparable_df = comparable_df[comparable_df['zone'] == dat.zone.values[0]]
+    if comparable_df.shape[0] <= 0:
+        comparable_final.append([id, gls_with_index.loc[id].land_parcel_id, None, "No comparable", 0])
+        continue
 
     # within certain distance
-    coord_dat = dat.loc[0, 'coordinates']
-    dist_limit_bool = comparable_df.coordinates.apply(lambda x: geodesic(x, coord_dat).km < distance_limit_km if not np.isnan(x).any() else False)
+    coord_dat = dat.reset_index(drop=True).loc[0, 'coordinates']
+    dist_limit_bool = comparable_df.coordinates.apply(lambda x: geodesic(x, coord_dat).km < distance_limit_km if not np.isnan(x+coord_dat).any() else False)
     comparable_df = comparable_df[dist_limit_bool]
     if comparable_df.shape[0] <= 0:
         comparable_final.append([id, gls_with_index.loc[id].land_parcel_id,  None, "No comparable", 0])
@@ -172,10 +168,10 @@ for id in tqdm(sg_gls_id):
     if comparable_df_area.shape[0] > 0:
         est = find_comparable_price(comparable_df_area, dat, land_bid_index, price_col='price_psm_gfa_1st')
         comparable_final.append(
-            [id, gls_with_index.loc[id].land_parcel_id, est, f"past {time_limit}m, same dev, wihtin {distance_limit_km}km, area<{area_limit}", comparable_df_area.shape[0]])
+            [id, gls_with_index.loc[id].land_parcel_id, est, f"past {time_limit}m, same dev, same region, same zone, wihtin {distance_limit_km}km, area<{area_limit*100}%", comparable_df_area.shape[0]])
     else:
         est = find_comparable_price(comparable_df, dat, land_bid_index, price_col='price_psm_gfa_1st')
-        comparable_final.append([id, gls_with_index.loc[id].land_parcel_id, est, f"past {time_limit}m, same dev, wihtin {distance_limit_km}km", comparable_df.shape[0]])
+        comparable_final.append([id, gls_with_index.loc[id].land_parcel_id, est, f"past {time_limit}m, same dev, same region, same zone, wihtin {distance_limit_km}km", comparable_df.shape[0]])
 
 final_df = pd.DataFrame(comparable_final,
                         columns=['sg_gls_id', 'land_parcel_id', 'comparable_price_psm_gfa', 'method', 'num_comparable_parcels'])
