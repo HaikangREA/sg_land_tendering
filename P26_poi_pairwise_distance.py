@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 import SQL_connect
 from geopy.distance import geodesic
-from tqdm import tqdm
+from tqdm  import tqdm
 import hashlib
 from datetime import date, datetime
 
@@ -43,16 +43,90 @@ def calculate_distance(poi_a, key_a, poi_b, key_b, distance_limit=5000):
     return output
 
 
+def extract_num(string: str, type: str = 'all', decimal: bool = False, ignore_sep: str = None, keep: str = None):
+    # 'type' means all numbers or just num between whitespaces by specifying type='between_spaces'
+    # 'ignore_sep' can be 'any' to ignore all sep, or specify a sep like ',', then func won't treat ',' as a separator
+    # 'keep' allows the func to keep all matched numbers or selected ones
+    import re
+    import itertools
+
+    # if the input is already int or float, return itself: input=1234 -> output=1234
+    if isinstance(string, int) or isinstance(string, float):
+        num = string
+        return num
+
+    else:
+        string = str(string)
+        # # remove all spaces from string
+        # string = ''.join(string.split(' '))
+        try:
+            # if the string can directly be converted to number, do so (e.g. input='1234' -> output=1234.0)
+            num = float(string)
+            return num
+
+        except:
+            pattern = r"\d+"  # find all numbers, any digits (ignore decimal number: input='$12.3' -> output=['12','3']
+            if decimal:
+                pattern = r"\d*\.?\d+"  # also match decimal numbers: input='$12.3' -> output='12.3'
+            if type == 'between_spaces':
+                pattern = r"\b" + pattern + r"\b"
+                # match numbers in between white spaces
+                # input='is $10.5 per box' -> output=None; input='is 10.5 dollars per box' -> output='10.5'
+            num_list = re.findall(pattern, string)
+
+            if ignore_sep:
+                if ignore_sep == 'any':  # ignore any separator between numbers
+                    # input='123a456,789.654' -> output='123456789654'
+                    if len(num_list) >= 1:
+                        num = "".join(num_list)
+                        return float(num)
+                    else:
+                        return np.nan
+                else:
+                    # ignore specified separator
+                    # input='$1,234,567.05' -> output ignore ',' & decimal is T='1234567.05'
+                    # output without ignoring & decimal is T=['1','234','567.05']
+                    string = string.replace(ignore_sep, "")
+                    num_list = re.findall(pattern, string)
+            num_list = [float(num) for num in num_list]  # convert all matched str item to float, stored in list
+
+            if keep:  # to specify certain numbers to keep by index, e.g. num_list=[5, 6, 7], keep=1 -> output=[5]
+                strip = [i.split(",") for i in keep.split("-")]
+                # for now only support ",", for "-" will amend this later
+                keep_idx = list(set([int(i) for i in list(itertools.chain.from_iterable(strip))]))
+                if len(num_list) > len(keep_idx):  # if not keeping all items, raise a msg to notify
+                    print(f"{len(num_list)} numbers detected")
+                num_list = [num_list[i - 1] for i in keep_idx if 0 <= i - 1 < len(num_list)]
+
+                if len(num_list) > 0:
+                    return num_list[0] if len(num_list) == 1 else num_list
+                else:
+                    return np.nan
+
+            if len(num_list) == 1:
+                return num_list[0]  # if the result num_list has only 1 value, output the value as float
+            elif len(num_list) > 1:
+                return num_list  # otherwise output the whole num_list
+            else:
+                return np.nan
+
+
+# read in data
 poi_df = dbconn.read_data("""select poi_name , poi_type , poi_subtype , poi_lat , poi_long , location_poi_dwid  , town
                              from masterdata_sg.poi
                              ;""")
 gls = dbconn.read_data("""select * from data_science.sg_new_full_land_bidding_filled_features;""")
-pred = dbconn.read_data("""select * from data_science.sg_gls_land_parcel_for_prediction""")
+pred = dbconn.read_data("""select * from data_science.sg_land_bidding_filled_features_with_comparable_price""")
+project = dbconn.read_data("""  select project_dwid, project_name, project_type_code, completion_year, location_marker
+                                from masterdata_sg.project;""")
 
+# transform for infra
 poi_df = poi_df.rename(columns={'poi_lat': 'latitude', 'poi_long': 'longitude'})
 poi_mrt = poi_df[poi_df.poi_subtype == 'mrt station'].drop_duplicates(subset='poi_name').reset_index(drop=True)
 poi_bus = poi_df[poi_df.poi_subtype == 'bus stop'].drop_duplicates(subset='poi_name').reset_index(drop=True)
 poi_sch = poi_df[poi_df.poi_type == 'school'].drop_duplicates(subset='poi_name').reset_index(drop=True)
+
+# transform for land parcels
 cols = ['land_parcel_id',
         'land_parcel_std',
         'latitude',
@@ -60,8 +134,13 @@ cols = ['land_parcel_id',
         'year_launch',
         'month_launch',
         'day_launch']
-poi_land_parcel = gls[cols].drop_duplicates(subset='land_parcel_std').reset_index(drop=True)
+poi_land_parcel = gls[cols].drop_duplicates(subset='land_parcel_id').reset_index(drop=True)
 pred_parcels_poi = pred[cols]
+
+# transform for project
+project['latitude'] = project.location_marker.apply(extract_num, decimal=True).apply(lambda x: -999 if np.isnan(x).any() else x[1])
+project['longitude'] = project.location_marker.apply(extract_num, decimal=True).apply(lambda x: -999 if np.isnan(x).any() else x[0])
+project_poi = project.drop(project[(project.longitude.abs() > 180) | (project.latitude.abs() > 90)].index, axis=0)
 
 # execute function for infrastructure
 mrt_distance = calculate_distance(pred_parcels_poi, 'land_parcel_id', poi_mrt, 'poi_name', distance_limit=5000)\
@@ -123,15 +202,25 @@ land_to_infra = dbconn.read_data('''with
                                         left join bus using (land_parcel_id)
                                         left join sch using (land_parcel_id)
                                     ;''')
+
+# create distance to cbd
+cbd_coord = (1.2884113726733633, 103.85252198698596)
+land_parcel_merged = pd.concat([poi_land_parcel.reset_index(drop=True),
+                                pred_parcels_poi.reset_index(drop=True)],
+                               ignore_index=True)[['land_parcel_id', 'latitude', 'longitude']]
+land_parcel_merged['coord'] = list(zip(list(land_parcel_merged.latitude), list(land_parcel_merged.longitude)))
+land_parcel_merged['dist_to_cbd'] = land_parcel_merged.coord\
+    .apply(lambda x: geodesic(x, cbd_coord).m if pd.notna(list(x)).all() else -1)
+
+# merge into infras table
+land_to_infra = land_to_infra.merge(land_parcel_merged[['land_parcel_id', 'dist_to_cbd']],
+                                    how='left',
+                                    on='land_parcel_id')
+
 if len(land_to_infra) > 0:
     dbconn.copy_from_df(land_to_infra, 'data_science.sg_land_parcel_distance_to_infrastructure')
 
-
 check = 42
-
-
-
-
 
 # below for land parcel
 parcel_distance = calculate_distance(pred_parcels_poi, 'land_parcel_id', poi_land_parcel, 'land_parcel_id')
@@ -183,6 +272,51 @@ if pw_dist_master.shape[0] == length + pairwise_dist.shape[0]:
 else:
     print('Error in uploading parcel pairwise distances')
 
+check = 42
+
+# land parcel - project distances
+poi_land_parcel = poi_land_parcel[['land_parcel_id', 'latitude', 'longitude', 'year_launch']]
+proj_distances = calculate_distance(poi_land_parcel, 'land_parcel_id', project_poi, 'project_dwid')
+dbconn.copy_from_df(proj_distances, "data_science.sg_land_parcel_distance_to_project")
+
+proj_dist_info = dbconn.read_data('''   with tb1 as(
+                                        with tb as(
+                                        select a.* , b.devt_class as land_use_big, b.devt_type as land_use , b.year_launch as land_launch_year
+                                        from data_science.sg_land_parcel_distance_to_project as a
+                                            left join data_science.sg_land_bidding_filled_features_with_comparable_price as b
+                                            using (land_parcel_id)
+                                        )
+                                        select tb.*, c.project_type_code , c.completion_year as proj_completion_year
+                                        from tb
+                                            left join masterdata_sg.project as c
+                                            using (project_dwid)
+                                        )
+                                        select *, 
+                                        case 
+                                            when project_type_code in (
+                                            'ec', 
+                                            'condo-w-house', 
+                                            'detach-house', 
+                                            'apt-w-house', 
+                                            'hdb', 
+                                            'condo', 
+                                            'landed-housing-group', 
+                                            'semid-house', 
+                                            'cluster-house', 
+                                            'apt', 
+                                            'terrace-house')
+                                            then 'residential'
+                                            when project_type_code in ('commercial') then 'commercial'
+                                            when project_type_code ilike '%mixed%' then 'mixed'
+                                            else 'others'
+                                        end as proj_devt_class
+                                        from tb1''')
+
+dbconn.copy_from_df(proj_dist_info, 'data_science.sg_land_parcel_filled_info_distance_to_project')
+
+
+
+
 
 # # upload tables
 # dbconn.copy_from_df(
@@ -198,7 +332,5 @@ else:
 #     "data_science.sg_gls_land_parcel_school_distance",
 # )
 
-# recalculate distance to cbd (1.2884113726733633, 103.85252198698596)
-# ctr_coord = (1.2884113726733633, 103.85252198698596)
-# gls['dist_to_cbd'] = gls.coordinates.apply(lambda x: geodesic(x, ctr_coord).km if pd.notna(list(x)).all() else -1)
 check = 42
+
