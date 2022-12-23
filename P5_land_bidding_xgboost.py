@@ -6,14 +6,15 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error as mse, mean_absolute_percentage_error as mape, r2_score
 import matplotlib.pylab as plt
 from sklearn.model_selection import RepeatedKFold, cross_val_score, GridSearchCV, RandomizedSearchCV
+import glspred
 from hyperopt import tpe, STATUS_OK, Trials, hp, fmin, STATUS_OK, space_eval
 
 
-def tune_param(x_train, y_train, x_test, y_test, test_size, params):
+def tune_param_rs(x_train, y_train, x_test, y_test, test_size, params):
     scoring = ['neg_mean_absolute_percentage_error']
     kfold = RepeatedKFold(n_splits=10, n_repeats=3, random_state=42)
     random_search = RandomizedSearchCV(estimator=xgb,
-                                       param_distributions=param_space,
+                                       param_distributions=params,
                                        n_iter=50,
                                        scoring=scoring,
                                        refit=scoring[0],
@@ -29,7 +30,7 @@ def tune_param(x_train, y_train, x_test, y_test, test_size, params):
 
     # apply tuned params
     param_tuned = random_search_res.best_params_
-    xgb_tuned = train(params=param_tuned, dtrain=DMatrix(x_train, label=y_train), num_boost_round=100)
+    xgb_tuned = train(params=param_tuned, dtrain=DMatrix(x_train, label=y_train), num_boost_round=500)
     pred_train, pred_test = xgb_tuned.predict(train_data), \
                             xgb_tuned.predict(test_data)
     mape_train, mape_test = mape(y_train, pred_train), \
@@ -212,13 +213,16 @@ for param in key_params:
 
 # random search cv
 # define search space
-param_space = {'max_depth': np.arange(7, 10),
-               'learning_rate': np.arange(0.01, 0.05, 0.01),
-               'gamma': np.arange(0.1, 0.3, 0.05),
-               'reg_lambda': np.arange(1, 1.25, 0.05),
-               'min_child_weight': np.arange(3, 5)
+param_space = {'max_depth': np.arange(3, 10),
+               'learning_rate': np.arange(0.01, 0.3, 0.01),
+               'gamma': np.arange(0, 1, 0.05),
+               'reg_lambda': np.arange(0.1, 5, 0.1),
+               'min_child_weight': np.arange(1, 10),
+               'subsample': np.arange(0.5, 1, 0.1),
+               'colsample_bytree': np.arange(0.5, 1, 0.01),
                }
-# random_search_output = tune_param(x_train, y_train, x_test, y_test, test_size, param_space)
+
+# random_search_output = tune_param_rs(x_train, y_train, x_test, y_test, test_size, params=param_space)
 # random_search_res = random_search_output[0]
 # mape_train, mape_test = random_search_output[1], random_search_output[2]
 #
@@ -240,15 +244,17 @@ param_space = {'max_depth': np.arange(7, 10),
 
 check = 42
 
-param_tuned = {'reg_lambda': 1.05,
-               'min_child_weight': 4,
-               'max_depth': 8,
-               'learning_rate': 0.03,
-               'gamma': 0.20,
+param_tuned = {'subsample': 0.7,
+               'reg_lambda': 0.8,
+               'min_child_weight': 8,
+               'max_depth': 5,
+               'learning_rate': 0.02,
+               'gamma': 0.45,
+               'colsample_bytree': 0.92
                }
 
 # test for over-fitting
-xgb_test = train(params=param_tuned, dtrain=train_data, num_boost_round=100)
+xgb_test = train(params=param_tuned, dtrain=train_data, num_boost_round=500)
 pred_train, pred_test = xgb_test.predict(DMatrix(x_train)), \
                         xgb_test.predict(DMatrix(x_test))
 mape_train, mape_test = mape(y_train, pred_train), \
@@ -284,7 +290,7 @@ pred_x['joint_venture'] = 0
 
 # dmat_pred = DMatrix(x, label=y)
 dmat_pred = train_data
-xgb_tuned = train(params=param_tuned, dtrain=dmat_pred, num_boost_round=100)
+xgb_tuned = train(params=param_tuned, dtrain=dmat_pred, num_boost_round=500)
 pred_train = xgb_tuned.predict(dmat_pred)
 pred_test = xgb_tuned.predict(test_data)
 
