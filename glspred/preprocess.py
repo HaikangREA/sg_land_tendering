@@ -12,10 +12,14 @@ class Preprocess:
             self.master = master
 
     @staticmethod
-    def get_uuid(text_id: str):
+    def get_uuid(text_id: str, mode='hashlib'):
         # create 64-digit uuid
         import hashlib
-        return hashlib.sha256(text_id.encode('utf-8')).hexdigest()
+        if mode == 'hashlib':
+            return hashlib.sha256(text_id.encode('utf-8')).hexdigest()
+        else:
+            txt_cleaned = text_id.lower().replace(' ', '')
+            return ''.join([s for s in txt_cleaned if s.isalnum()]).ljust(64, '0')
 
     # to create uuid for land parcel and gls sale record
     def encode(self, pred: pd.DataFrame = None) -> pd.DataFrame:
@@ -40,20 +44,23 @@ class Preprocess:
 
         # create land parcel uuid
         # in case of lacking any dimension, create uuid as <name><00000...> (total 64-digit), same for gls uuid
-        pred['land_parcel_id'] = pred.land_parcel_name.apply(lambda x: x.lower().replace(' ', '').ljust(64, '0'))
+        # pred['land_parcel_id'] = pred.land_parcel_name.apply(lambda x: x.lower().replace(' ', ''))\
+        #     .apply(lambda x: ''.join([s for s in x if s.isalnum()]).ljust(64, '0'))
+        pred['land_parcel_id'] = pred.land_parcel_name.apply(self.get_uuid, mode='default')
         land_parcel_non_na_index = pred[(pred.land_parcel_name.notna())
                                         & (pred.latitude.notna())
                                         & (pred.longitude.notna())].index
         land_parcel_id_text = pred.land_parcel_name + pred.latitude.astype(str) + pred.longitude.astype(str)
-        pred.loc[land_parcel_non_na_index, 'land_parcel_id'] = land_parcel_id_text.loc[land_parcel_non_na_index].apply(self.get_uuid)
+        pred.loc[land_parcel_non_na_index, 'land_parcel_id'] = land_parcel_id_text.loc[land_parcel_non_na_index]\
+                                                                                .apply(self.get_uuid, mode='hashlib')
 
         # create gls uuid
-        pred['sg_gls_id'] = pred.land_parcel_name.apply(lambda x: x.lower().replace(' ', '').ljust(64, '0'))
+        pred['sg_gls_id'] = pred.land_parcel_name.apply(self.get_uuid, mode='default')
         gls_non_na_index = pred[(pred.land_parcel_id.str.contains('0'*5))
                                 & (pred.award_month_index.notna())
                                 & (pred.site_area_sqm.notna())].index
         gls_id_text = pred.land_parcel_id + pred.award_month_index.astype(str)
-        pred.loc[gls_non_na_index, 'sg_gls_id'] = gls_id_text.loc[gls_non_na_index].apply(self.get_uuid)
+        pred.loc[gls_non_na_index, 'sg_gls_id'] = gls_id_text.loc[gls_non_na_index].apply(self.get_uuid, mode='hashlib')
 
         # add id cols to output cols
         output_cols = ['sg_gls_id', 'land_parcel_id'] + list(input_cols)
