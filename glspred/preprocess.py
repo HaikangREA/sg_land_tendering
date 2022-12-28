@@ -10,6 +10,28 @@ class Preprocess:
             self.pred = pred
         if master is not None:
             self.master = master
+        self.res_keywords = ['residential',
+                             'condo',
+                             'hdb',
+                             'apartment',
+                             'apt',
+                             'executive condo',
+                             'ec',
+                             'flat',
+                             'landed',
+                             'terrace',
+                             'bungalow',
+                             'condo-w-house',
+                             'detach-house',
+                             'apt-w-house',
+                             'landed-housing-group',
+                             'semid-house',
+                             'cluster-house',
+                             'terrace-house'
+                             ]
+        self.com_keywords = ['commercial',
+                             'recreation']
+        self.res_kw_condo_hdb = ['CO', 'AP', 'LP', 'FT', 'BH', 'TH']
 
     @staticmethod
     def get_uuid(text_id: str, mode='hashlib'):
@@ -108,6 +130,22 @@ class Preprocess:
 
         return self.pred
 
+    def land_use_regroup(self, land_use_type_raw: str):
+        if land_use_type_raw:
+            type_code_lower = land_use_type_raw.lower()
+            if (any(kw in type_code_lower for kw in self.res_keywords) and any(kw in type_code_lower for kw in self.com_keywords)) \
+                    or ('mix' in type_code_lower):
+                return 'mixed'
+            elif any(kw in type_code_lower for kw in self.res_keywords):
+                return 'residential'
+            elif any(kw in type_code_lower for kw in self.com_keywords):
+                return 'commercial'
+            else:
+                return 'others'
+
+        else:
+            return np.nan
+
     # to merge func into one
     def process(self, pred: pd.DataFrame = None, master: pd.DataFrame = None, fill_value=np.nan) -> pd.DataFrame:
         if pred is not None:
@@ -120,5 +158,8 @@ class Preprocess:
         pred_encoded = self.encode()
         pred_balanced = self.balance_metrics()
         pred_aligned = self.align_columns()
+        pred_aligned.loc[:, 'land_use_type'] = pred_aligned.land_use_type.apply(self.land_use_regroup)
+        self.pred = pred_aligned
 
-        return pred_aligned
+        return self.pred
+

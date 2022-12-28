@@ -1,9 +1,12 @@
+import re
+import itertools
+import numpy as np
+
+
 def extract_num(string: str, type: str = 'all', decimal: bool = False, ignore_sep: str = None, keep: str = None):
     # 'type' means all numbers or just num between whitespaces by specifying type='between_spaces'
     # 'ignore_sep' can be 'any' to ignore all sep, or specify a sep like ',', then func won't treat ',' as a separator
     # 'keep' allows the func to keep all matched numbers or selected ones
-    import re
-    import itertools
 
     # if the input is already int or float, return itself: input=1234 -> output=1234
     if isinstance(string, int) or isinstance(string, float):
