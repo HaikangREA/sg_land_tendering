@@ -1,6 +1,10 @@
 import re
 import itertools
 import numpy as np
+import SQL_connect
+import difflib
+
+dbconn = SQL_connect.DBConnectionRS()
 
 
 def extract_num(string: str, type: str = 'all', decimal: bool = False, ignore_sep: str = None, keep: str = None):
@@ -67,3 +71,39 @@ def extract_num(string: str, type: str = 'all', decimal: bool = False, ignore_se
                 return num_list  # otherwise output the whole num_list
             else:
                 return np.nan
+
+
+def extract_bracketed(text: str):
+    import re
+    pattern = r'\((.*?)\)'
+    return re.findall(pattern=pattern, string=text)
+
+
+def remove_brackets(text: str, remove_content=False):
+    if remove_content:
+        pattern = r' ?\(.*?\) ?'
+        return re.sub(pattern, '', text)
+    return text.replace('(', '').replace(')', '')
+
+
+if __name__ == '__main__':
+    poi_mrt = dbconn.read_data("""select * from masterdata_sg.poi p where poi_subtype ilike '%mrt%'""")
+    poi_mrt['mrt_line'] = poi_mrt.poi_name.apply(extract_bracketed)\
+        .apply(lambda x: re.sub(r' ?/ ?', '/', x[0]))\
+        .apply(lambda x: ''.join([w for w in list(x) if not w.isnumeric()]))\
+        .apply(lambda x: x.split('/'))
+    poi_mrt['line_code_check'] = poi_mrt.mrt_line.apply(lambda x: 0 if any(len(code) != 2 for code in x) else 1)
+
+    # # this can match the closest name, use when necessary
+    # mrt_correct = poi_mrt[poi_mrt.line_code_check == 1].poi_name
+    # difflib.get_close_matches('ocbc buona vista mrt station', mrt_correct, n=1, cutoff=0.7)
+
+    # here just drop those with code issues
+    poi_mrt = poi_mrt[poi_mrt.line_code_check == 1]
+    poi_mrt['mrt_station_name'] = poi_mrt.poi_name.apply(remove_brackets, remove_content=True)
+    poi_mrt['num_lines_raw'] = poi_mrt.mrt_line.str.len()
+    mrt = poi_mrt[['poi_name', 'mrt_station_name', 'num_lines_raw', 'mrt_line']]
+    mrt_num_lines = mrt.groupby('mrt_station_name').sum('num_lines_raw').reset_index().rename(columns={'num_lines': 'num_lines'})
+    mrt = mrt.merge(mrt_num_lines, how='left', on='mrt_station_name')
+
+    check = 42

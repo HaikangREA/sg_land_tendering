@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+import re
+import difflib
 import SQL_connect
 from geopy.distance import geodesic
 from glspred import preprocess, distcal, extraction
@@ -47,6 +49,28 @@ poi_df = poi_df.rename(columns={'poi_lat': 'latitude', 'poi_long': 'longitude'})
 poi_mrt = poi_df[poi_df.poi_subtype == 'mrt station'].drop_duplicates(subset='poi_name').reset_index(drop=True)
 poi_bus = poi_df[poi_df.poi_subtype == 'bus stop'].drop_duplicates(subset='poi_name').reset_index(drop=True)
 poi_sch = poi_df[poi_df.poi_type == 'school'].drop_duplicates(subset='poi_name').reset_index(drop=True)
+
+# special wrangling for mrt poi
+poi_mrt['mrt_line'] = poi_mrt.poi_name.apply(extraction.extract_bracketed)\
+    .apply(lambda x: re.sub(r' ?/ ?', '/', x[0]))\
+    .apply(lambda x: ''.join([w for w in list(x) if not w.isnumeric()]))\
+    .apply(lambda x: x.split('/'))
+# by right the line code should be 2-char (cc, ne, dt...), if not, means problematic
+poi_mrt['line_code_check'] = poi_mrt.mrt_line.apply(lambda x: 0 if any(len(code) != 2 for code in x) else 1)
+
+# # this can match the closest name, use when necessary
+# mrt_correct = poi_mrt[poi_mrt.line_code_check == 1].poi_name
+# difflib.get_close_matches('ocbc buona vista mrt station', mrt_correct, n=1, cutoff=0.7)
+
+# here just drop those with code issues
+poi_mrt = poi_mrt[poi_mrt.line_code_check == 1]
+poi_mrt['mrt_station_name'] = poi_mrt.poi_name.apply(extraction.remove_brackets, remove_content=True)
+poi_mrt['num_lines_raw'] = poi_mrt.mrt_line.str.len()
+mrt = poi_mrt[['poi_name', 'mrt_station_name', 'num_lines_raw', 'mrt_line']]
+mrt_num_lines = mrt.groupby('mrt_station_name').sum('num_lines_raw').reset_index().rename(columns={'num_lines_raw': 'num_lines'})
+mrt_line_linkage = mrt.merge(mrt_num_lines, how='left', on='mrt_station_name')\
+    .rename(columns={'mrt_station_name': 'mrt_station'})\
+    .drop_duplicates(subset=['mrt_station'])
 
 # transform for land parcels
 master_new['coordinates'] = list(zip(list(master_new.latitude), list(master_new.longitude)))
@@ -133,8 +157,7 @@ parcel_distance_with_time['launch_time_diff_days'] = timer.time_diff_by_index(pa
                                                                               time_unit='D')
 parcel_distance_with_time[['land_parcel_a_launch_date',
                            'land_parcel_b_launch_date']] = parcel_distance_with_time[['land_parcel_a_launch_date',
-                                                                                      'land_parcel_b_launch_date']].astype(
-    int)
+                                                                                      'land_parcel_b_launch_date']].astype(int)
 
 # parcel-project distances
 project['latitude'] = project.location_marker.apply(extraction.extract_num, decimal=True).apply(
@@ -163,6 +186,16 @@ merged_mrt_dist = pd.concat([mrt_dist_master, mrt_distance], ignore_index=True)
 merged_bus_dist = pd.concat([bus_dist_master, bus_distance], ignore_index=True)
 merged_sch_dist = pd.concat([sch_dist_master, sch_distance], ignore_index=True)
 merged_infra_dist = pd.concat([infra_dist_master, dist_to_infra], ignore_index=True)
+
+# for mrt dist, de-duplicate
+mrt_name_dict = dict(zip(list(mrt_line_linkage.poi_name), list(mrt_line_linkage.mrt_station)))
+merged_mrt_dist['mrt_station'] = merged_mrt_dist.mrt_station.map(mrt_name_dict)
+merged_mrt_dist['key'] = merged_mrt_dist.land_parcel_id + merged_mrt_dist.mrt_station
+merged_mrt_dist = merged_mrt_dist.sort_values(by=['key', 'distance_m'], ascending=False).drop_duplicates(subset=['key'], keep='last')
+merged_mrt_dist.drop('key', axis=1, inplace=True)
+
+# merge into num of lines of each mrt station
+merged_mrt_dist = merged_mrt_dist.merge(mrt_line_linkage[['mrt_station', 'num_lines']], how='left', on='mrt_station')
 
 # concat parcel-parcel data
 merged_parcel_dist = pd.concat([parcel_dist_master, parcel_distance_with_time], ignore_index=True)
@@ -328,13 +361,20 @@ proj_nearest = proj_nearest[['land_parcel_id', 'distance_m']]\
     .rename(columns={'distance_m': f'dist_to_nearest_proj_completed_past_{proj_time_lim}years'})
 
 
-# number of nearby mrt
+# number of nearby mrt stations
 mrt_dist_lim = 1  # km
 nearby_mrt = merged_mrt_dist[merged_mrt_dist.distance_m <= mrt_dist_lim * 1000][['land_parcel_id', 'distance_m']]\
     .groupby('land_parcel_id')\
     .count() \
     .reset_index() \
     .rename(columns={'distance_m': f'num_mrt_{mrt_dist_lim}km'})
+
+# number of nearby mrt lines
+nearby_mrt_lines = merged_mrt_dist[merged_mrt_dist.distance_m <= mrt_dist_lim * 1000][['land_parcel_id', 'num_lines']]\
+    .groupby('land_parcel_id')\
+    .sum('num_lines')\
+    .reset_index() \
+    .rename(columns={'num_lines': f'num_mrt_lines_{mrt_dist_lim}km'})
 
 
 # number of nearby bus stop
@@ -359,6 +399,7 @@ nearby_sch = merged_sch_dist[merged_sch_dist.distance_m <= school_dist_lim * 100
 feature_df = master_new.merge(nearby_pcls, how='left', on='land_parcel_id')\
     .merge(nearby_proj, how='left', on='land_parcel_id')\
     .merge(nearby_mrt, how='left', on='land_parcel_id')\
+    .merge(nearby_mrt_lines, how='left', on='land_parcel_id')\
     .merge(nearby_bus, how='left', on='land_parcel_id')\
     .merge(nearby_sch, how='left', on='land_parcel_id')\
     .merge(parcels_nearest, how='left', on='land_parcel_id')\
@@ -370,6 +411,7 @@ fill_na_cols = [f'num_nearby_parcels_{parcel_dist_lim}km_past_{parcel_time_lim}m
                 f'num_proj_nearby_{proj_dist_lim}km_past_{proj_time_lim}years',
                 f'dist_to_nearest_proj_completed_past_{proj_time_lim}years',
                 f'num_mrt_{mrt_dist_lim}km',
+                f'num_mrt_lines_{mrt_dist_lim}km',
                 f'num_bus_stop_{bus_stop_dist_lim}m',
                 f'num_school_{school_dist_lim}km',
                 ]
