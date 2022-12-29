@@ -69,8 +69,8 @@ class TimeMaster:
         from numpy import timedelta64
         from datetime import datetime
         return (
-                    df[time_index_col_a].apply(lambda x: datetime.strptime(x, time_format)) -
-                    df[time_index_col_b].apply(lambda x: datetime.strptime(x, time_format))
+                    df[time_index_col_a].apply(lambda x: datetime.strptime(str(x), time_format)) -
+                    df[time_index_col_b].apply(lambda x: datetime.strptime(str(x), time_format))
                ) / timedelta64(1, time_unit)
 
 
