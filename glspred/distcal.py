@@ -17,7 +17,7 @@ class PairwiseDistCalculator:
         self.master_id = master_id
         self.reference_id = ref_id
 
-    def calculate_distance(self, poi_master=None, poi_ref=None, master_id=None, ref_id=None, distance_limit=5000):
+    def calculate_distance(self, poi_master=None, poi_ref=None, master_id=None, ref_id=None, distance_limit=5000, cutoff=False):
         if poi_master is not None:
             self.poi_master = poi_master
         if poi_ref is not None:
@@ -38,7 +38,7 @@ class PairwiseDistCalculator:
                                        'distance_m'])
 
         for id_a in tqdm(loop_a, desc='Calculating pairwise distance'):
-            coord_a = self.poi_master.loc[id_a].coordinates
+            coord_a = (self.poi_master.loc[id_a].latitude, self.poi_master.loc[id_a].longitude)
             for id_b in loop_b:
                 coord_b = (self.poi_reference.loc[id_b].latitude, self.poi_reference.loc[id_b].longitude)
                 try:
@@ -48,6 +48,8 @@ class PairwiseDistCalculator:
                 to_append = [id_a, id_b, distance]
                 if 0 < distance <= distance_limit:
                     output.loc[len(output)] = to_append
+                    if cutoff:
+                        break
 
         return output
 
@@ -58,6 +60,7 @@ class PairwiseDistCalculator:
         if rename_col is not None:
             nearby_df = nearby_df.rename(columns=rename_col)
         return nearby_df
+
 
 class TimeMaster:
 

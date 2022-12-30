@@ -1,10 +1,15 @@
 import pandas as pd
 import numpy as np
+import SQL_connect
+from glspred.distcal import PairwiseDistCalculator
+
+dbconn = SQL_connect.DBConnectionRS()
 
 
 class Preprocess:
 
-    def __init__(self, pred: pd.DataFrame = None, master: pd.DataFrame = None):
+    def __init__(self, dbconn=None, pred: pd.DataFrame = None, master: pd.DataFrame = None):
+        self.dbconn = dbconn
         if pred is not None:
             self.pred_origin = pred.copy()  # store original pred data
             self.pred = pred
@@ -134,7 +139,7 @@ class Preprocess:
         if land_use_type_raw:
             type_code_lower = land_use_type_raw.lower()
             if (any(kw in type_code_lower for kw in self.res_keywords) and any(kw in type_code_lower for kw in self.com_keywords)) \
-                    or ('mix' in type_code_lower):
+                    or ('mix' in type_code_lower) or ('white' in type_code_lower):
                 return 'mixed'
             elif any(kw in type_code_lower for kw in self.res_keywords):
                 return 'residential'
@@ -162,4 +167,26 @@ class Preprocess:
         self.pred = pred_aligned
 
         return self.pred
+
+    def find_region_zone(self, poi_a: pd.DataFrame, ref_a, dist_lim=3000, cutoff=False):
+        # cutoff means to break the loop when one location whose distance is within limit has been found
+        distcal = PairwiseDistCalculator()
+        location_df = self.dbconn.read_data('''select address_dwid, city_area as "zone", region_admin_district as region, latitude, longitude
+                                            from masterdata_sg.address''')
+        location_df.rename(columns={'address_dwid': 'poi_b'}, inplace=True)
+        location_df['coordinates'] = list(zip(location_df.latitude.tolist(), location_df.longitude.tolist()))
+        dist_df = distcal.calculate_distance(poi_a, location_df, ref_a, 'poi_b', dist_lim, cutoff)
+        location_df.reset_index(drop=True, inplace=True)
+        poi_a.reset_index(drop=True, inplace=True)
+        region_zone = dist_df.merge(location_df[['poi_b', 'region', 'zone']], how='left', on='poi_b').rename(columns={'poi_a': ref_a})
+        return region_zone[[ref_a, 'region', 'zone']]
+
+
+if __name__ == "__main__":
+    pred_raw = pd.read_csv(r'G:\REA\Working files\land-bidding\pipeline\Parcel for land bidding prediction.csv')
+    prep = Preprocess(dbconn=dbconn)
+    region_zone_info = prep.find_region_zone(pred_raw, 'land_parcel_name', 500, cutoff=True)
+
+    check = 42
+    print(0)
 
