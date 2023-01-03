@@ -3,8 +3,6 @@ import numpy as np
 import SQL_connect
 from glspred.distcal import PairwiseDistCalculator
 
-dbconn = SQL_connect.DBConnectionRS()
-
 
 class Preprocess:
 
@@ -83,7 +81,7 @@ class Preprocess:
 
         # create gls uuid
         pred['sg_gls_id'] = pred.land_parcel_name.apply(self.get_uuid, mode='default')
-        gls_non_na_index = pred[(pred.land_parcel_id.str.contains('0'*5))
+        gls_non_na_index = pred[(~pred.land_parcel_id.str.contains('0'*5))
                                 & (pred.award_month_index.notna())
                                 & (pred.site_area_sqm.notna())].index
         gls_id_text = pred.land_parcel_id + pred.award_month_index.astype(str)
@@ -183,10 +181,11 @@ class Preprocess:
 
 
 if __name__ == "__main__":
-    pred_raw = pd.read_csv(r'G:\REA\Working files\land-bidding\pipeline\Parcel for land bidding prediction.csv')
+    dbconn = SQL_connect.DBConnectionRS()
+    gls_dup = pd.read_csv(r'G:\REA\Working files\land-bidding\pipeline\gls_dup.csv')
     prep = Preprocess(dbconn=dbconn)
-    region_zone_info = prep.find_region_zone(pred_raw, 'land_parcel_name', 500, cutoff=True)
-
-    check = 42
+    # region_zone_info = prep.find_region_zone(pred_raw, 'land_parcel_name', 500, cutoff=True)
+    gls_dup_encoded = prep.encode(gls_dup)
+    breakpoint()
     print(0)
 

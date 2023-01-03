@@ -5,6 +5,7 @@ import datetime
 from dateutil.relativedelta import relativedelta
 from tqdm import tqdm
 from geopy.distance import geodesic
+from glspred import extraction, utils
 
 dbconn = SQL_connect.DBConnectionRS()
 
@@ -67,83 +68,96 @@ def find_comparable_price(comparable_df, dat, index_table, price_col):
         return None
 
 
-gls_all = dbconn.read_data("""select * from data_science_test.sg_gls_bidding_master_filled_features
-                                union
-                                select *
-                                from data_science_test.sg_gls_bidding_upcoming_filled_features
-                                """)
-land_bid_index = dbconn.read_data("""select * from data_science.sg_land_bidding_psm_price_hedonic_index_2022""")
+def parse_coord(coord_text: str):
+    import re
+    coord = re.findall(r'\((.*?)\)', coord_text)
+    try:
+        coord_num = extraction.extract_num(coord[0], decimal=True)
+        return tuple(coord_num)
+    except (IndexError, TypeError):
+        return (np.nan, np.nan)
 
-gls_all.sort_values(by=['year_launch', 'month_launch', 'day_launch'], inplace=True)
-gls_all.drop_duplicates(subset=['land_parcel_id'], keep='last', inplace=True)
-sg_gls_id = list(gls_all.sg_gls_id)
-gls_all.index = gls_all.sg_gls_id
 
-time_limit = 24
-distance_limit_km = 5
-area_limit = 0.2
+if __name__ == '__main__':
+    gls_master = dbconn.read_data("""select * from data_science_test.sg_gls_bidding_master_filled_features""")
+    gls_pred = dbconn.read_data("""select * from data_science_test.sg_gls_bidding_upcoming_filled_features""")
+    land_bid_index = dbconn.read_data("""select * from data_science.sg_land_bidding_psm_price_hedonic_index_2022""")
 
-# main code
-comparable_final = []
-for id in tqdm(sg_gls_id[-4:]):
-    id_list_all = list(gls_all.sg_gls_id)
-    id_list_all.remove(id)
-    dat = gls_all[gls_all['sg_gls_id'] == id]
+    gls_all = pd.concat([gls_master, gls_pred])
+    gls_all.sort_values(by=['year_launch', 'month_launch', 'day_launch'], inplace=True)
+    gls_all.drop_duplicates(subset=['land_parcel_id'], keep='last', inplace=True)
+    sg_gls_id = list(gls_all.sg_gls_id)
+    gls_all.index = gls_all.sg_gls_id
 
-    # recency within last 24 months
-    comparable_df = gls_all[
-        (gls_all.launch_month_index.astype(str) > get_month_index_from(dat.launch_month_index, -time_limit))
-        & ((dat.launch_month_index.values - gls_all.launch_month_index) > 0)
-        ]
-    if comparable_df.shape[0] <= 0:
-        comparable_final.append([id, gls_all.loc[id].land_parcel_id, None, "No comparable", 0])
-        continue
+    time_limit = 24
+    distance_limit_km = 5
+    area_limit = 0.2
 
-    # same land use
-    comparable_df = comparable_df[comparable_df['land_use_type'] == dat.land_use_type.values[0]]
-    if comparable_df.shape[0] <= 0:
-        comparable_final.append([id, gls_all.loc[id].land_parcel_id,  None, "No comparable", 0])
-        continue
+    # main code
+    comparable_final = []
+    for id in tqdm(sg_gls_id, desc="Searching for comparable"):
+        id_list_all = list(gls_all.sg_gls_id)
+        id_list_all.remove(id)
+        dat = gls_all[gls_all['sg_gls_id'] == id]
 
-    # Same region
-    comparable_df = comparable_df[comparable_df['region'] == dat.region.values[0]]
-    if comparable_df.shape[0] <= 0:
-        comparable_final.append([id, gls_all.loc[id].land_parcel_id,  None, "No comparable", 0])
-        continue
+        # recency within last 24 months
+        comparable_df = gls_all[
+            (gls_all.launch_month_index.astype(str) > get_month_index_from(dat.launch_month_index, -time_limit))
+            & ((dat.launch_month_index.values - gls_all.launch_month_index) > 0)
+            ]
+        if comparable_df.shape[0] <= 0:
+            comparable_final.append([id, gls_all.loc[id].land_parcel_id, None, "No comparable", 0])
+            continue
 
-    # within certain distance
-    coord_dat = dat.reset_index(drop=True).loc[0, 'coordinates']
-    dist_limit_bool = comparable_df.coordinates.apply(lambda x: geodesic(x, coord_dat).km < distance_limit_km if not np.isnan(x+coord_dat).any() else False)
-    comparable_df = comparable_df[dist_limit_bool]
-    if comparable_df.shape[0] <= 0:
-        comparable_final.append([id, gls_all.loc[id].land_parcel_id,  None, "No comparable", 0])
-        continue
+        # same land use
+        comparable_df = comparable_df[comparable_df['land_use_type'] == dat.land_use_type.values[0]]
+        if comparable_df.shape[0] <= 0:
+            comparable_final.append([id, gls_all.loc[id].land_parcel_id,  None, "No comparable", 0])
+            continue
 
-    # Same zone
-    comparable_df_zone = comparable_df[comparable_df['zone'] == dat.zone.values[0]]
-    if comparable_df_zone.shape[0] > 0:
-        comparable_df = comparable_df_zone
-        same_zone = ', same zone'
-    else:
-        # comparable_final.append([id, gls_all.loc[id].land_parcel_id, None, "No comparable", 0])
-        same_zone = ''
+        # Same region
+        comparable_df = comparable_df[comparable_df['region'] == dat.region.values[0]]
+        if comparable_df.shape[0] <= 0:
+            comparable_final.append([id, gls_all.loc[id].land_parcel_id,  None, "No comparable", 0])
+            continue
 
-    # Area <= 20%
-    comparable_df_area = comparable_df[abs((comparable_df.site_area_sqm / dat.site_area_sqm.values[0]) - 1) < area_limit]
-    if comparable_df_area.shape[0] > 0:
-        est = find_comparable_price(comparable_df_area, dat, land_bid_index, price_col='price_psm_gfa_1st')
-        comparable_final.append(
-            [id, gls_all.loc[id].land_parcel_id, est, f"past {time_limit}m, same dev, same region, wihtin {distance_limit_km}km{same_zone}, area<{area_limit*100}%", comparable_df_area.shape[0]])
-    else:
-        est = find_comparable_price(comparable_df, dat, land_bid_index, price_col='price_psm_gfa_1st')
-        comparable_final.append([id, gls_all.loc[id].land_parcel_id, est, f"past {time_limit}m, same dev, same region, wihtin {distance_limit_km}km{same_zone}", comparable_df.shape[0]])
+        # within certain distance
+        coord_dat = parse_coord(dat.reset_index(drop=True).loc[0, 'coordinates'])
+        dist_limit_bool = comparable_df.coordinates.apply(parse_coord)\
+            .apply(lambda x: geodesic(x, coord_dat).km < distance_limit_km if not np.isnan(x+coord_dat).any() else False)
+        comparable_df = comparable_df[dist_limit_bool]
+        if comparable_df.shape[0] <= 0:
+            comparable_final.append([id, gls_all.loc[id].land_parcel_id,  None, "No comparable", 0])
+            continue
 
-final_df = pd.DataFrame(comparable_final,
-                        columns=['sg_gls_id', 'land_parcel_id', 'comparable_price_psm_gfa', 'method', 'num_comparable_parcels'])
+        # Same zone
+        comparable_df_zone = comparable_df[comparable_df['zone'] == dat.zone.values[0]]
+        if comparable_df_zone.shape[0] > 0:
+            comparable_df = comparable_df_zone
+            same_zone = ', same zone'
+        else:
+            # comparable_final.append([id, gls_all.loc[id].land_parcel_id, None, "No comparable", 0])
+            same_zone = ''
 
-gls_all_with_comparable = gls_all.merge(final_df[['sg_gls_id', 'comparable_price_psm_gfa']],
-                                        how='left',
-                                        on='sg_gls_id')
+        # Area <= 20%
+        comparable_df_area = comparable_df[abs((comparable_df.site_area_sqm / dat.site_area_sqm.values[0]) - 1) < area_limit]
+        if comparable_df_area.shape[0] > 0:
+            est = find_comparable_price(comparable_df_area, dat, land_bid_index, price_col='price_psm_gfa_1st')
+            comparable_final.append(
+                [id, gls_all.loc[id].land_parcel_id, est, f"past {time_limit}m, same dev, same region, wihtin {distance_limit_km}km{same_zone}, area<{area_limit*100}%", comparable_df_area.shape[0]])
+        else:
+            est = find_comparable_price(comparable_df, dat, land_bid_index, price_col='price_psm_gfa_1st')
+            comparable_final.append([id, gls_all.loc[id].land_parcel_id, est, f"past {time_limit}m, same dev, same region, wihtin {distance_limit_km}km{same_zone}", comparable_df.shape[0]])
 
-# dbconn.copy_from_df(final_df, "data_science.updated_sg_new_comparable_land_bidding")
-check = 42
+    breakpoint()
+    final_df = pd.DataFrame(comparable_final,
+                            columns=['sg_gls_id', 'land_parcel_id', 'comparable_price_psm_gfa', 'method', 'num_comparable_parcels'])
+
+    gls_all_with_comparable = gls_all.reset_index(drop=True).merge(final_df[['sg_gls_id', 'comparable_price_psm_gfa']],
+                                                                   how='left',
+                                                                   on='sg_gls_id')
+    gls_all_with_comparable = gls_all_with_comparable.merge(land_bid_index[['year_launch', 'hi_price_psm_gfa']], how='left', on='year_launch')
+
+    breakpoint()
+    utils.upload(dbconn, gls_all_with_comparable, 'data_science_test.sg_gls_bidding_all_filled_features_comparable_prices')
+

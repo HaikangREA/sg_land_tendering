@@ -4,7 +4,7 @@ import re
 import difflib
 import SQL_connect
 from geopy.distance import geodesic
-from glspred import preprocess, distcal, extraction
+from glspred import preprocess, distcal, extraction, utils
 from itertools import chain
 import time
 
@@ -12,7 +12,28 @@ start = time.time()
 dbconn = SQL_connect.DBConnectionRS()
 
 # read in predicting data and master table
-pred_raw = pd.read_csv(r'G:\REA\Working files\land-bidding\pipeline\Parcel for land bidding prediction.csv')
+# pred_raw = pd.read_csv(r'G:\REA\Working files\land-bidding\pipeline\Parcel for land bidding prediction.csv')
+pred_raw = dbconn.read_data('''select * from data_science_test.sg_gls_bidding_upcoming_raw''')
+pred_cols = ['pred_no',
+             'land_parcel_name',
+             'street',
+             'latitude',
+             'longitude',
+             'date_launch',
+             'date_close',
+             'land_use_type',
+             'project_type',
+             'site_area_sqm',
+             'gfa_sqm',
+             'gpr',
+             'lease_term',
+             'source',
+             'proj_num_of_units',
+             'proj_max_floor',
+             'num_bidders',
+             'joint_venture',
+             ]
+pred_raw = pred_raw.loc[pred_raw.pred_no <= 4, pred_cols]
 # master = pd.read_csv(r'G:\REA\Working files\land-bidding\pipeline\gls_origin.csv')
 master = dbconn.read_data('''select * from data_science_test.sg_gls_bidding_origin_master''')
 
@@ -54,7 +75,7 @@ print('Preprocess completed: {:.3f}s'.format(time.time() - start))
 
 # calculate pairwise distances
 # infrastructure
-distance_limit = 5000
+distance_limit = 5000  # meters
 poi_df = poi_df.rename(columns={'poi_lat': 'latitude', 'poi_long': 'longitude'})
 poi_mrt = poi_df[poi_df.poi_subtype == 'mrt station'].drop_duplicates(subset='poi_name').reset_index(drop=True)
 poi_bus = poi_df[poi_df.poi_subtype == 'bus stop'].drop_duplicates(subset='poi_name').reset_index(drop=True)
@@ -269,7 +290,7 @@ merged_proj_dist_info = pd.concat([proj_dist_info_master, proj_dist_info])
 
 print('Calculation completed: {:.3f}s'.format(time.time() - start))
 
-bkpt = 42
+breakpoint()
 
 # feature engineering
 cat_cols = ['region',  #
@@ -291,7 +312,8 @@ num_cols = ['latitude',
             'proj_max_floor',  # should be dynamic
             'num_nearby_parcels_3km_past_6month',  # use format
             'num_proj_nearby_2km_past_5years',  # use format
-            'num_mrt_1km',  #
+            'num_mrt_stations_1km',  #
+            'num_mrt_lines_1km',  #
             'num_bus_stop_500m',  #
             'num_school_1km',  #
             'dist_to_nearest_parcel_launched_past_6month',  #
@@ -444,19 +466,12 @@ print('Feature engineering completed: {:.3f}s'.format(time.time() - start))
 # upload data with features
 master_feat_df = feature_df[feature_df.predicting == 0]
 pred_feat_df = feature_df[feature_df.predicting == 1]
-print(f"Shape for master: {master_feat_df.shape}", f"Shape for pred: {pred_feat_df.shape}", sep='\n')
+df_list = [master_feat_df,
+           pred_feat_df]
+tbl_names = ["data_science_test.sg_gls_bidding_master_filled_features",
+             "data_science_test.sg_gls_bidding_upcoming_filled_features"]
 
 # check before uploading
-bkpt = 42
-check_upload = ''
-while check_upload not in ['Y', 'y'] or check_upload not in ['N', 'n']:
-    check_upload = input("Confirm uploading (Y/N)\n")
-    if check_upload in ['Y', 'y']:
-        dbconn.copy_from_df(master_feat_df, "data_science_test.sg_gls_bidding_master_filled_features")
-        dbconn.copy_from_df(pred_feat_df, "data_science_test.sg_gls_bidding_upcoming_filled_features")
-        break
-    elif check_upload in ['N', 'n']:
-        break
-    else:
-        print(f'"{check_upload}" is not a valid command')
+breakpoint()
+utils.upload(dbconn, df_list, tbl_names)
 
