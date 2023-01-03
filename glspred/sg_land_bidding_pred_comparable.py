@@ -149,15 +149,43 @@ if __name__ == '__main__':
             est = find_comparable_price(comparable_df, dat, land_bid_index, price_col='price_psm_gfa_1st')
             comparable_final.append([id, gls_all.loc[id].land_parcel_id, est, f"past {time_limit}m, same dev, same region, wihtin {distance_limit_km}km{same_zone}", comparable_df.shape[0]])
 
-    breakpoint()
+    # breakpoint()
     final_df = pd.DataFrame(comparable_final,
                             columns=['sg_gls_id', 'land_parcel_id', 'comparable_price_psm_gfa', 'method', 'num_comparable_parcels'])
 
     gls_all_with_comparable = gls_all.reset_index(drop=True).merge(final_df[['sg_gls_id', 'comparable_price_psm_gfa']],
                                                                    how='left',
                                                                    on='sg_gls_id')
-    gls_all_with_comparable = gls_all_with_comparable.merge(land_bid_index[['year_launch', 'hi_price_psm_gfa']], how='left', on='year_launch')
+    gls_all_with_comparable = gls_all_with_comparable.merge(land_bid_index[['year_launch', 'hi_price_psm_gfa']],
+                                                            how='left',
+                                                            on='year_launch')
+
+    # print out comparable prices
+    gls_pred_with_comparable = gls_all_with_comparable[gls_all_with_comparable.predicting == 1][['sg_gls_id',
+                                                                                                 'land_parcel_id',
+                                                                                                 'land_parcel_name',
+                                                                                                 'gfa_sqm',
+                                                                                                 'comparable_price_psm_gfa']]
+    gls_pred_with_comparable['comparable_total_tender_price'] = gls_pred_with_comparable.gfa_sqm * gls_pred_with_comparable.comparable_price_psm_gfa
+    print('-' * 8, "Predicted tender price", '-' * 8)
+    for i in gls_pred_with_comparable.index:
+        if pd.notna(gls_pred_with_comparable.loc[i, 'comparable_price_psm_gfa']):
+            if pd.notna(gls_pred_with_comparable.loc[i, 'gfa_sqm']):
+                print("{}: ${:,.2f} ({:,.2f} psm of GFA)".format(gls_pred_with_comparable.loc[i, 'land_parcel_name'],
+                                                                 gls_pred_with_comparable.loc[i, 'comparable_total_tender_price'],
+                                                                 gls_pred_with_comparable.loc[i, 'comparable_price_psm_gfa']), sep='\n')
+            else:
+                print("{}: ${:,.2f} psm of GFA".format(gls_pred_with_comparable.loc[i, 'land_parcel_name'],
+                                                       gls_pred_with_comparable.loc[i, 'comparable_price_psm_gfa']), sep='\n')
+        else:
+            print("{}: No comparable price".format(gls_pred_with_comparable.loc[i, 'land_parcel_name']))
+    gls_pred_upload = gls_pred_with_comparable[['sg_gls_id',
+                                                'land_parcel_id',
+                                                'land_parcel_name',
+                                                'comparable_price_psm_gfa',
+                                                'comparable_total_tender_price']]
 
     breakpoint()
-    utils.upload(dbconn, gls_all_with_comparable, 'data_science_test.sg_gls_bidding_all_filled_features_comparable_prices')
+    utils.upload(dbconn, [gls_all_with_comparable, gls_pred_upload], ['data_science_test.sg_gls_bidding_all_filled_features_comparable_prices',
+                                                                      'data_science_test.sg_gls_bidding_upcoming_predicted_prices'])
 

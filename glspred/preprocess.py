@@ -34,7 +34,9 @@ class Preprocess:
                              ]
         self.com_keywords = ['commercial',
                              'recreation']
-        self.res_kw_condo_hdb = ['CO', 'AP', 'LP', 'FT', 'BH', 'TH']
+        self.res_kw_hdb_condo = ['CO', 'AP', 'LP', 'FT', 'BH', 'TH', 'EC']
+        hdb_condo_name = ['condo', 'apt', 'landed', 'flat', 'bungalow', 'terrace', 'exec condo']
+        self.res_kw_hdb_condo_dict = dict(zip(self.res_kw_hdb_condo, hdb_condo_name))
 
     @staticmethod
     def get_uuid(text_id: str, mode='hashlib'):
@@ -146,6 +148,27 @@ class Preprocess:
             else:
                 return 'others'
 
+        else:
+            return np.nan
+
+    def project_type_regroup(self, project_type_raw: str):
+        if project_type_raw:
+            prj_type = ''.join([s for s in project_type_raw if s.isalpha()])
+            if prj_type[:2] in self.res_kw_hdb_condo_dict.keys():
+                return self.res_kw_hdb_condo_dict[prj_type[:2]]
+            else:
+                prj_type_lower = prj_type.lower()
+                if (any(kw in prj_type_lower for kw in self.res_keywords)
+                    and any(kw in prj_type_lower for kw in self.com_keywords)) \
+                        or ('mix' in prj_type_lower) \
+                        or ('white' in prj_type_lower):
+                    return 'mixed'
+                elif any(kw in prj_type_lower for kw in self.res_keywords):
+                    return 'condo'
+                elif any(kw in prj_type_lower for kw in self.com_keywords):
+                    return 'commercial'
+                else:
+                    return 'others'
         else:
             return np.nan
 

@@ -43,7 +43,7 @@ dbconn = SQL_connect.DBConnectionRS()
 
 # read in data
 gls = dbconn.read_data('''select * from data_science_test.sg_gls_bidding_all_filled_features_comparable_prices''')
-
+pred_prices = dbconn.read_data('''select * from data_science_test.sg_gls_bidding_upcoming_predicted_prices''')
 # # read in infra table
 # infra = dbconn.read_data(''' select * from data_science.sg_land_parcel_distance_to_infrastructure''')
 #
@@ -150,7 +150,7 @@ x_train_to_append, x_test, y_train_to_append, y_test = train_test_split(x_test_t
 x_train = pd.concat([x, x_train_to_append])
 y_train = pd.concat([y, y_train_to_append])
 test_size = round(len(x_test) / len(gls), 2)
-breakpoint()
+# breakpoint()
 
 # initial model with default params
 # # train-test split
@@ -211,15 +211,15 @@ mape_train, mape_test = random_search_output[1], random_search_output[2]
 #               seed=42)
 
 breakpoint()
-param_tuned = random_search_output[3]
-# param_tuned = {'subsample': 0.6,
-#                'reg_lambda': 0.3,
-#                'min_child_weight': 5,
-#                'max_depth': 6,
-#                'learning_rate': 0.02,
-#                'gamma': 0.75,
-#                'colsample_bytree': 0.88
-#                }
+# param_tuned = random_search_output[3]
+param_tuned = {'subsample': 0.7,
+               'reg_lambda': 1.5,
+               'min_child_weight': 3,
+               'max_depth': 5,
+               'learning_rate': 0.02,
+               'gamma': 0.25,
+               'colsample_bytree': 0.5
+               }
 
 # test for over-fitting
 xgb_test = train(params=param_tuned, dtrain=train_data, num_boost_round=500)
