@@ -167,6 +167,8 @@ class Preprocess:
                     return 'condo'
                 elif any(kw in prj_type_lower for kw in self.com_keywords):
                     return 'commercial'
+                elif 'hotel' in prj_type_lower:
+                    return 'hotel'
                 else:
                     return 'others'
         else:

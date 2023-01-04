@@ -65,11 +65,14 @@ pred['predicting'] = 1
 region_zone_info = processor.find_region_zone(pred, 'land_parcel_name', 500, cutoff=True)
 pred['region'] = pd.merge(pred, region_zone_info, how='left', on='land_parcel_name')['region']
 pred['zone'] = pd.merge(pred, region_zone_info, how='left', on='land_parcel_name')['zone']
-pred[['region', 'zone', 'project_type', 'source']] = pred[['region', 'zone', 'project_type', 'source']].apply(lambda x: x.str.lower())
+pred[['region', 'zone', 'project_type', 'source']] = pred[['region', 'zone', 'project_type', 'source']].apply(
+    lambda x: x.str.lower())
 pred['region'] = pred.region.str.replace('_', ' ').str.replace('north east', 'north-east')
 # process and concat
 pred_processed = processor.process(pred, master)
 master_new = pd.concat([master, pred_processed], ignore_index=True)
+# regroup project type
+master_new['project_type'] = master_new.project_type.apply(processor.project_type_regroup)
 
 print('Preprocess completed: {:.3f}s'.format(time.time() - start))
 
@@ -82,9 +85,9 @@ poi_bus = poi_df[poi_df.poi_subtype == 'bus stop'].drop_duplicates(subset='poi_n
 poi_sch = poi_df[poi_df.poi_type == 'school'].drop_duplicates(subset='poi_name').reset_index(drop=True)
 
 # special wrangling for mrt poi
-poi_mrt['mrt_line'] = poi_mrt.poi_name.apply(extraction.extract_bracketed)\
-    .apply(lambda x: re.sub(r' ?/ ?', '/', x[0]))\
-    .apply(lambda x: ''.join([w for w in list(x) if not w.isnumeric()]))\
+poi_mrt['mrt_line'] = poi_mrt.poi_name.apply(extraction.extract_bracketed) \
+    .apply(lambda x: re.sub(r' ?/ ?', '/', x[0])) \
+    .apply(lambda x: ''.join([w for w in list(x) if not w.isnumeric()])) \
     .apply(lambda x: x.split('/'))
 # by right the line code should be 2-char (cc, ne, dt...), if not, means problematic
 poi_mrt['line_code_check'] = poi_mrt.mrt_line.apply(lambda x: 0 if any(len(code) != 2 for code in x) else 1)
@@ -98,13 +101,12 @@ poi_mrt = poi_mrt[poi_mrt.line_code_check == 1]
 poi_mrt['mrt_station_name'] = poi_mrt.poi_name.apply(extraction.remove_brackets, remove_content=True)
 mrt = poi_mrt[['poi_name', 'mrt_station_name', 'mrt_line']]
 mrt_line_linkage = mrt.rename(columns={'mrt_station_name': 'mrt_station', 'mrt_line': 'mrt_line_raw'})
-mrt_line_combined = mrt_line_linkage[['mrt_station', 'mrt_line_raw']].groupby('mrt_station')\
-    .agg(lambda x: list(chain.from_iterable(list(chain(x)))))\
-    .reset_index()\
+mrt_line_combined = mrt_line_linkage[['mrt_station', 'mrt_line_raw']].groupby('mrt_station') \
+    .agg(lambda x: list(chain.from_iterable(list(chain(x))))) \
+    .reset_index() \
     .rename(columns={'mrt_line_raw': 'mrt_line'})
 mrt_line_combined['num_lines'] = mrt_line_combined.mrt_line.str.len()
 mrt_line_linkage = mrt_line_linkage.merge(mrt_line_combined, how='left', on='mrt_station').drop('mrt_line_raw', axis=1)
-
 
 # transform for land parcels
 master_new['coordinates'] = list(zip(list(master_new.latitude), list(master_new.longitude)))
@@ -230,7 +232,7 @@ merged_mrt_dist = merged_mrt_dist.merge(mrt_line_linkage[['mrt_station', 'num_li
                                         how='left',
                                         on='mrt_station')
 merged_mrt_dist['key'] = merged_mrt_dist.land_parcel_id + merged_mrt_dist.mrt_station
-merged_mrt_dist = merged_mrt_dist.sort_values(by=['key', 'distance_m'], ascending=False)\
+merged_mrt_dist = merged_mrt_dist.sort_values(by=['key', 'distance_m'], ascending=False) \
     .drop_duplicates(subset=['key'], keep='last')
 merged_mrt_dist.drop('key', axis=1, inplace=True)
 
@@ -290,7 +292,7 @@ merged_proj_dist_info = pd.concat([proj_dist_info_master, proj_dist_info])
 
 print('Calculation completed: {:.3f}s'.format(time.time() - start))
 
-breakpoint()
+# breakpoint()
 
 # feature engineering
 cat_cols = ['region',  #
@@ -335,42 +337,44 @@ parcel_dist_lim = 3  # km
 parcel_time_lim = 6  # months
 
 merged_parcel_dist_info = merged_parcel_dist.merge(master_unique_land_parcels[['land_parcel_id', 'land_use_type']],
-                                                      how='left',
-                                                      left_on='land_parcel_id_a',
-                                                      right_on='land_parcel_id').rename(columns={'land_use_type': 'land_use_type_a'})\
-                                                .drop('land_parcel_id', axis=1)\
-                                                .merge(master_unique_land_parcels[['land_parcel_id', 'land_use_type']],
-                                                      how='left',
-                                                      left_on='land_parcel_id_b',
-                                                      right_on='land_parcel_id').rename(columns={'land_use_type': 'land_use_type_b'})\
-                                                .drop('land_parcel_id', axis=1)
+                                                   how='left',
+                                                   left_on='land_parcel_id_a',
+                                                   right_on='land_parcel_id').rename(
+    columns={'land_use_type': 'land_use_type_a'}) \
+    .drop('land_parcel_id', axis=1) \
+    .merge(master_unique_land_parcels[['land_parcel_id', 'land_use_type']],
+           how='left',
+           left_on='land_parcel_id_b',
+           right_on='land_parcel_id').rename(columns={'land_use_type': 'land_use_type_b'}) \
+    .drop('land_parcel_id', axis=1)
 
 parcels_selected = merged_parcel_dist_info[(merged_parcel_dist_info.distance_m <= parcel_dist_lim * 1000) &
                                            (merged_parcel_dist_info.distance_m > 0) &
                                            (merged_parcel_dist_info.launch_time_diff_days < 30 * parcel_time_lim) &
                                            (merged_parcel_dist_info.launch_time_diff_days >= 0) &
-                                           (merged_parcel_dist_info.land_use_type_a == merged_parcel_dist_info.land_use_type_b)]
+                                           (
+                                                       merged_parcel_dist_info.land_use_type_a == merged_parcel_dist_info.land_use_type_b)]
 
-nearby_pcls = parcels_selected[['land_parcel_id_a', 'land_parcel_id_b']]\
+nearby_pcls = parcels_selected[['land_parcel_id_a', 'land_parcel_id_b']] \
     .groupby('land_parcel_id_a').count() \
     .reset_index() \
     .rename(columns={'land_parcel_id_a': 'land_parcel_id',
-                     'land_parcel_id_b': f'num_nearby_parcels_{parcel_dist_lim}km_past_{parcel_time_lim}month'})\
+                     'land_parcel_id_b': f'num_nearby_parcels_{parcel_dist_lim}km_past_{parcel_time_lim}month'}) \
     .set_index('land_parcel_id')
 
 # distance to nearest parcel launched within past months
 parcels_nearest = merged_parcel_dist_info[(merged_parcel_dist_info.distance_m > 0) &
                                           (merged_parcel_dist_info.launch_time_diff_days < 30 * parcel_time_lim) &
                                           (merged_parcel_dist_info.launch_time_diff_days >= 0) &
-                                          (merged_parcel_dist_info.land_use_type_a == merged_parcel_dist_info.land_use_type_b)]
+                                          (
+                                                      merged_parcel_dist_info.land_use_type_a == merged_parcel_dist_info.land_use_type_b)]
 
-parcels_nearest = parcels_nearest[['land_parcel_id_a', 'distance_m']]\
+parcels_nearest = parcels_nearest[['land_parcel_id_a', 'distance_m']] \
     .groupby('land_parcel_id_a').min('distance_m') \
-    .reset_index()\
+    .reset_index() \
     .rename(columns={'land_parcel_id_a': 'land_parcel_id',
-                     'distance_m': f'dist_to_nearest_parcel_launched_past_{parcel_time_lim}month'})\
+                     'distance_m': f'dist_to_nearest_parcel_launched_past_{parcel_time_lim}month'}) \
     .set_index('land_parcel_id')
-
 
 # number of nearby proj
 proj_dist_lim = 2  # km
@@ -378,56 +382,62 @@ proj_time_lim = 5  # year
 
 proj_selected = merged_proj_dist_info[(merged_proj_dist_info.distance_m > 0) &
                                       (merged_proj_dist_info.distance_m <= proj_dist_lim * 1000) &
-                                      (merged_proj_dist_info.land_launch_year - merged_proj_dist_info.proj_completion_year <= proj_time_lim) &
-                                      (0 < merged_proj_dist_info.land_launch_year - merged_proj_dist_info.proj_completion_year) &
+                                      (
+                                                  merged_proj_dist_info.land_launch_year - merged_proj_dist_info.proj_completion_year <= proj_time_lim) &
+                                      (
+                                                  0 < merged_proj_dist_info.land_launch_year - merged_proj_dist_info.proj_completion_year) &
                                       (merged_proj_dist_info.land_use_type == merged_proj_dist_info.project_type_group)]
 
-nearby_proj = proj_selected[['land_parcel_id', 'project_dwid']]\
+nearby_proj = proj_selected[['land_parcel_id', 'project_dwid']] \
     .groupby('land_parcel_id').count() \
     .rename(columns={'project_dwid': f'num_proj_nearby_{proj_dist_lim}km_past_{proj_time_lim}years'})
 
 # distance to nearest project completed within past years
 proj_nearest = merged_proj_dist_info[(merged_proj_dist_info.distance_m > 0) &
-                                     (merged_proj_dist_info.land_launch_year - merged_proj_dist_info.proj_completion_year <= proj_time_lim) &
-                                     (0 < merged_proj_dist_info.land_launch_year - merged_proj_dist_info.proj_completion_year) &
+                                     (
+                                                 merged_proj_dist_info.land_launch_year - merged_proj_dist_info.proj_completion_year <= proj_time_lim) &
+                                     (
+                                                 0 < merged_proj_dist_info.land_launch_year - merged_proj_dist_info.proj_completion_year) &
                                      (merged_proj_dist_info.land_use_type == merged_proj_dist_info.project_type_group)]
 
-proj_nearest = proj_nearest[['land_parcel_id', 'distance_m']]\
+proj_nearest = proj_nearest[['land_parcel_id', 'distance_m']] \
     .groupby('land_parcel_id').min('distance_m') \
     .rename(columns={'distance_m': f'dist_to_nearest_proj_completed_past_{proj_time_lim}years'})
 
-
 # number of nearby mrt stations
 mrt_dist_lim = 1  # km
-nearby_mrt = merged_mrt_dist[(merged_mrt_dist.distance_m <= mrt_dist_lim * 1000) & (merged_mrt_dist.distance_m > 0)][['land_parcel_id', 'distance_m']]\
-    .groupby('land_parcel_id')\
+nearby_mrt = merged_mrt_dist[(merged_mrt_dist.distance_m <= mrt_dist_lim * 1000) & (merged_mrt_dist.distance_m > 0)][
+    ['land_parcel_id', 'distance_m']] \
+    .groupby('land_parcel_id') \
     .count() \
     .rename(columns={'distance_m': f'num_mrt_{mrt_dist_lim}km'})
 
 # number of nearby mrt lines
-nearby_mrt_lines = merged_mrt_dist[(merged_mrt_dist.distance_m <= mrt_dist_lim * 1000) & (merged_mrt_dist.distance_m > 0)][['land_parcel_id', 'mrt_line']]\
-    .groupby('land_parcel_id')\
+nearby_mrt_lines = \
+merged_mrt_dist[(merged_mrt_dist.distance_m <= mrt_dist_lim * 1000) & (merged_mrt_dist.distance_m > 0)][
+    ['land_parcel_id', 'mrt_line']] \
+    .groupby('land_parcel_id') \
     .agg(lambda x: list(set(list(chain.from_iterable(list(chain(x)))))))
 # both 'ce' and 'cc' are Circle Line
-nearby_mrt_lines['mrt_line'] = nearby_mrt_lines.mrt_line.apply(lambda l: list(set(list(map(lambda s: s.replace('ce', 'cc'), l)))))
+nearby_mrt_lines['mrt_line'] = nearby_mrt_lines.mrt_line.apply(
+    lambda l: list(set(list(map(lambda s: s.replace('ce', 'cc'), l)))))
 nearby_mrt_lines[f'num_mrt_lines_{mrt_dist_lim}km'] = nearby_mrt_lines.mrt_line.str.len()
-
 
 # number of nearby bus stop
 bus_stop_dist_lim = 500  # meters
-nearby_bus = merged_bus_dist[(merged_bus_dist.distance_m <= bus_stop_dist_lim) & (merged_bus_dist.distance_m > 0)][['land_parcel_id', 'distance_m']]\
-    .groupby('land_parcel_id')\
+nearby_bus = merged_bus_dist[(merged_bus_dist.distance_m <= bus_stop_dist_lim) & (merged_bus_dist.distance_m > 0)][
+    ['land_parcel_id', 'distance_m']] \
+    .groupby('land_parcel_id') \
     .count() \
     .rename(columns={'distance_m': f'num_bus_stop_{bus_stop_dist_lim}m'})
 
-
 # number of nearby school
 school_dist_lim = 1  # km
-nearby_sch = merged_sch_dist[(merged_sch_dist.distance_m <= school_dist_lim * 1000) & (merged_sch_dist.distance_m > 0)][['land_parcel_id', 'distance_m']]\
-    .groupby('land_parcel_id')\
-    .count()\
+nearby_sch = merged_sch_dist[(merged_sch_dist.distance_m <= school_dist_lim * 1000) & (merged_sch_dist.distance_m > 0)][
+    ['land_parcel_id', 'distance_m']] \
+    .groupby('land_parcel_id') \
+    .count() \
     .rename(columns={'distance_m': f'num_school_{school_dist_lim}km'})
-
 
 # merge all to master table
 df_to_merge = pd.concat([nearby_pcls,
@@ -441,6 +451,11 @@ df_to_merge = pd.concat([nearby_pcls,
                          merged_infra_dist.set_index('land_parcel_id')],
                         axis=1).reset_index()
 feature_df = master_new.merge(df_to_merge, how='left', on='land_parcel_id')
+# ad-hoc solution to missing values in dist_to_cbd
+if feature_df.dist_to_cbd.isna().sum() > 0:
+    missing_d2cbd_index = feature_df[(feature_df.dist_to_cbd.isna()) & (feature_df.coordinates.notna())].index
+    feature_df.loc[missing_d2cbd_index, 'dist_to_cbd'] = feature_df.loc[missing_d2cbd_index, 'coordinates']\
+        .apply(lambda x: np.nan if np.isnan(x).any() else round(geodesic(x, sg_cbd_coord).m, 2))
 
 # fillna for certain columns
 fill_na_cols = [f'num_nearby_parcels_{parcel_dist_lim}km_past_{parcel_time_lim}month',
@@ -470,8 +485,12 @@ df_list = [master_feat_df,
            pred_feat_df]
 tbl_names = ["data_science_test.sg_gls_bidding_master_filled_features",
              "data_science_test.sg_gls_bidding_upcoming_filled_features"]
+master_desc = master_feat_df.describe(include='all')
+pred_desc = pred_feat_df.describe(include='all')
 
 # check before uploading
 breakpoint()
-utils.upload(dbconn, df_list, tbl_names)
-
+conditions = [master_feat_df.shape[0] == master.shape[0],
+              pred_feat_df.shape[0] == pred_raw.shape[0]]
+utils.upload(dbconn, df_list, tbl_names, auto_check_conditions=conditions)
+breakpoint()
